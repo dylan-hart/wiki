@@ -338,8 +338,10 @@ class MailModel {
   /**
    * Resolve one `mail.<key>.{subject,text,html}` trio for a locale and send it.
    *
-   * The suffixes are passed already resolved rather than as another key, because
-   * `sendForgotPassword` only resolves them when `mail.senderName` is set at all.
+   * Every param is escaped for the HTML part and only there: a `name` is whatever the account holder
+   * (or a provider) typed. The suffixes are passed already resolved, and already escaped, rather than
+   * as another key, because `sendForgotPassword` only resolves them when `mail.senderName` is set at
+   * all.
    */
   private async sendTemplate(
     to: string,
@@ -362,8 +364,13 @@ class MailModel {
         (await CARDINAL.models.locales.resolveString(locale, `mail.${key}.text`, params)) +
         textSuffix,
       html:
-        (await CARDINAL.models.locales.resolveString(locale, `mail.${key}.html`, params)) +
-        htmlSuffix
+        (await CARDINAL.models.locales.resolveString(
+          locale,
+          `mail.${key}.html`,
+          Object.fromEntries(
+            Object.entries(params).map(([name, value]) => [name, escapeHtml(value)])
+          )
+        )) + htmlSuffix
     })
   }
 
@@ -425,7 +432,7 @@ class MailModel {
       : ''
     const signatureHtml = cfg.senderName
       ? await CARDINAL.models.locales.resolveString(locale, 'mail.signature.html', {
-          name: cfg.senderName
+          name: escapeHtml(cfg.senderName)
         })
       : ''
     await this.sendTemplate(
@@ -674,7 +681,7 @@ class MailModel {
         link
       }),
       html: await locales.resolveString(locale, 'mail.signInMethodAdded.html', {
-        name,
+        name: escapeHtml(name),
         method: escapeHtml(methodName),
         link
       })
@@ -735,7 +742,7 @@ class MailModel {
           locale,
           'mail.testEmail.baseURLConfigured.html',
           {
-            url: baseURL
+            url: escapeHtml(baseURL)
           }
         )
       : await CARDINAL.models.locales.resolveString(locale, 'mail.testEmail.baseURLMissing')

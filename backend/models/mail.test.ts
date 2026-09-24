@@ -844,6 +844,60 @@ describe('mail template senders', () => {
     assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login/)
   })
 
+  test('sendSignInMethodAdded escapes the recipient name in the HTML part only', async () => {
+    await mail.sendSignInMethodAdded({
+      to: 'ada@example.com',
+      name: '<img src=x onerror=alert(1)>',
+      methodName: 'GitHub'
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.text, /<img src=x onerror=alert\(1\)>/)
+    assert.match(msg.html, /&lt;img src=x onerror=alert\(1\)&gt;/)
+    assert.doesNotMatch(msg.html, /<img/)
+  })
+
+  // -> Every sender built on `sendTemplate()`, each handed a name nobody on this instance vetted
+  for (const [label, send] of [
+    [
+      'sendVerifyEmail',
+      (name: string) => mail.sendVerifyEmail({ to: 'a@example.com', name, token: 't' })
+    ],
+    [
+      'sendForgotPassword',
+      (name: string) => mail.sendForgotPassword({ to: 'a@example.com', name, token: 't' })
+    ],
+    [
+      'sendWelcomeEmail',
+      (name: string) => mail.sendWelcomeEmail({ to: 'a@example.com', name, token: 't' })
+    ],
+    [
+      'sendPasswordResetConfirmed',
+      (name: string) => mail.sendPasswordResetConfirmed({ to: 'a@example.com', name })
+    ],
+    ['sendTfaEnabled', (name: string) => mail.sendTfaEnabled({ to: 'a@example.com', name })],
+    ['sendTfaDisabled', (name: string) => mail.sendTfaDisabled({ to: 'a@example.com', name })],
+    [
+      'sendTfaRecoveryCodesGenerated',
+      (name: string) => mail.sendTfaRecoveryCodesGenerated({ to: 'a@example.com', name })
+    ],
+    [
+      'sendTfaNewDeviceLogin',
+      (name: string) => mail.sendTfaNewDeviceLogin({ to: 'a@example.com', name, ip: '1.2.3.4' })
+    ],
+    [
+      'sendRegistrationAttemptNotice',
+      (name: string) => mail.sendRegistrationAttemptNotice({ to: 'a@example.com', name })
+    ]
+  ] as const) {
+    test(`${label} escapes the recipient name in the HTML part only`, async () => {
+      await send('<b>Ada</b> & "friends"')
+      const msg = sendCalls[0]
+      assert.match(msg.text, /<b>Ada<\/b> & "friends"/)
+      assert.match(msg.html, /&lt;b&gt;Ada&lt;\/b&gt; &amp; &quot;friends&quot;/)
+      assert.doesNotMatch(msg.html, /<b>Ada/)
+    })
+  }
+
   test('sendRegistrationAttemptNotice links at the given siteId hostname (OpenProject #3386)', async () => {
     await mail.sendRegistrationAttemptNotice({
       to: 'fixture@example.com',
@@ -902,6 +956,19 @@ describe('mail template senders', () => {
     assert.match(msg.html, /My Wiki/)
   })
 
+  test('sendForgotPassword escapes the sender name in the HTML signature only', async () => {
+    setMailConfig({
+      host: 'smtp.example.com',
+      senderEmail: 'wiki@example.com',
+      senderName: 'Docs <Team>',
+      defaultBaseURL: 'https://wiki.example.com'
+    })
+    await mail.sendForgotPassword({ to: 'ada@example.com', name: 'Ada', token: 'tok456' })
+    const msg = sendCalls[0]
+    assert.match(msg.text, /Docs <Team>/)
+    assert.match(msg.html, /Docs &lt;Team&gt;/)
+  })
+
   test('sendForgotPassword omits a signature when no sender name is set', async () => {
     await mail.sendForgotPassword({ to: 'ada@example.com', name: 'Ada', token: 'tok456' })
     const msg = sendCalls[0]
@@ -916,6 +983,19 @@ describe('mail template senders', () => {
     assert.match(msg.subject, /test/i)
     assert.match(msg.text, /https:\/\/wiki\.example\.com/)
     assert.match(msg.html, /https:\/\/wiki\.example\.com/)
+  })
+
+  test('sendTestEmail escapes the defaultBaseURL in the HTML part only', async () => {
+    setMailConfig({
+      host: 'smtp.example.com',
+      senderEmail: 'wiki@example.com',
+      defaultBaseURL: 'https://wiki.example.com/"><b>x</b>'
+    })
+    await mail.sendTestEmail({ to: 'ada@example.com' })
+    const msg = sendCalls[0]
+    assert.match(msg.text, /"><b>x<\/b>/)
+    assert.match(msg.html, /&quot;&gt;&lt;b&gt;x&lt;\/b&gt;/)
+    assert.doesNotMatch(msg.html, /<b>x/)
   })
 
   test('sendTestEmail still sends when defaultBaseURL is unset', async () => {

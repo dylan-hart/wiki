@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { compileTrustProxyList, CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
+import { DISCONNECTED_AUTH_KEY } from '../helpers/userAuthEntries.ts'
 
 export const SECURITY_FIELDS = [
   'allowPasskeys',
@@ -216,7 +217,8 @@ class Security {
         )
         AND NOT EXISTS (
           SELECT 1 FROM jsonb_each(auth) AS entry
-          WHERE coalesce(entry.value ->> 'restrictLogin', 'false') <> 'true'
+          WHERE entry.key <> ${DISCONNECTED_AUTH_KEY}
+            AND coalesce(entry.value ->> 'restrictLogin', 'false') <> 'true'
         )
     `)
     const locked = Number((result.rows[0] as { count?: number } | undefined)?.count ?? 0)

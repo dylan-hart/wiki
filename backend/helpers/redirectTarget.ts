@@ -6,6 +6,10 @@
  * Parses the candidate with `URL` rather than pattern-matching a `scheme://` prefix: such a regex
  * accepts `javascript://%0aalert(1)`, where `//` opens a JS line comment and the decoded newline
  * ends it before `alert(1)` runs.
+ *
+ * A value carrying any ASCII control character is refused outright: a browser strips tab, CR and
+ * LF from anywhere in a URL (and other C0 controls from its ends) before parsing it, so
+ * `/\t/evil.example` passes a rooted-path check here and still navigates to `//evil.example`.
  */
 
 export interface RedirectTargetOptions {
@@ -20,11 +24,22 @@ export interface RedirectTargetOptions {
 
 const DEFAULT_ALLOWED_PROTOCOLS = ['http:', 'https:'] as const
 
+/** U+0000-U+001F and U+007F. */
+function hasAsciiControlCharacter(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if (code < 0x20 || code === 0x7f) {
+      return true
+    }
+  }
+  return false
+}
+
 export function isFollowableRedirectTarget(
   value: unknown,
   { allowAbsolute = true, allowedProtocols = DEFAULT_ALLOWED_PROTOCOLS }: RedirectTargetOptions = {}
 ): boolean {
-  if (typeof value !== 'string') {
+  if (typeof value !== 'string' || hasAsciiControlCharacter(value)) {
     return false
   }
   const trimmed = value.trim()

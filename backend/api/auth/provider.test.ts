@@ -225,6 +225,102 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
     assert.equal(loginCalls.length, 0)
   })
 
+  /**
+   * The `SameSite=Lax` session cookie is left off the identity provider's cross-site POST, which
+   * is what a session with no flow on it models here.
+   */
+  describe('a SAML answer delivered without the session cookie', () => {
+    function deliver(fields: Record<string, string>) {
+      return app.inject({
+        method: 'POST',
+        url: `/auth/${STRATEGY_ID}/callback`,
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        payload: new URLSearchParams(fields).toString()
+      })
+    }
+
+    function hiddenFields(html: string): Record<string, string> {
+      return Object.fromEntries(
+        [...html.matchAll(/<input type="hidden" name="([^"]*)" value="([^"]*)" \/>/g)].map((m) => [
+          m[1]!,
+          m[2]!
+        ])
+      )
+    }
+
+    test('is answered with a form re-posting it from this origin, and nothing else happens', async () => {
+      session = {}
+
+      const res = await deliver({ SAMLResponse: 'encoded-response', RelayState: 'abc123' })
+
+      assert.equal(res.statusCode, 200)
+      assert.match(res.headers['content-type'] as string, /^text\/html/)
+      assert.equal(res.headers['cache-control'], 'no-store')
+      assert.match(
+        res.body,
+        new RegExp(`<form method="post" action="/auth/${STRATEGY_ID}/callback">`)
+      )
+      assert.deepEqual(hiddenFields(res.body), {
+        SAMLResponse: 'encoded-response',
+        RelayState: 'abc123',
+        bounced: '1'
+      })
+      assert.equal(loginCalls.length, 0)
+    })
+
+    test('the re-post, carrying the session, completes the login as a first delivery would', async () => {
+      session = { authFlow: freshFlow() }
+
+      const res = await deliver({
+        SAMLResponse: 'encoded-response',
+        RelayState: 'abc123',
+        bounced: '1'
+      })
+
+      assert.equal(res.statusCode, 302)
+      assert.equal(res.headers.location, '/welcome')
+      assert.equal(loginCalls.length, 1)
+    })
+
+    test('the re-post still needs RelayState to match the flow', async () => {
+      session = { authFlow: freshFlow() }
+
+      const res = await deliver({
+        SAMLResponse: 'encoded-response',
+        RelayState: 'not-the-flow-state',
+        bounced: '1'
+      })
+
+      assert.match(res.headers.location as string, /^\/login\?error=ERR_LOGIN_EXPIRED/)
+      assert.equal(loginCalls.length, 0)
+    })
+
+    test('a re-post that still finds no flow fails as expired instead of going round again', async () => {
+      session = {}
+
+      const res = await deliver({
+        SAMLResponse: 'encoded-response',
+        RelayState: 'abc123',
+        bounced: '1'
+      })
+
+      assert.equal(res.statusCode, 302)
+      assert.match(res.headers.location as string, /^\/login\?error=ERR_LOGIN_EXPIRED/)
+    })
+
+    test('escapes what it echoes into the page', async () => {
+      session = {}
+
+      const res = await deliver({
+        SAMLResponse: 'r',
+        RelayState: '"><script>alert(1)</script>'
+      })
+
+      assert.doesNotMatch(res.body, /<script>alert/)
+      assert.match(res.body, /value="&quot;&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;"/)
+    })
+  })
+
   /** CAS answers with `ticket` where an OAuth2/OIDC provider answers with `code`. */
   test("a GET callback forwards `ticket` (not `code`) to the module's profile(), alongside `state`", async () => {
     session = { authFlow: freshFlow({ strategyId: CAS_STRATEGY_ID }) }

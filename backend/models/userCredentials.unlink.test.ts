@@ -1,8 +1,17 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { setTimeout as delay } from 'node:timers/promises'
 import bcrypt from 'bcryptjs'
 import { and, eq } from 'drizzle-orm'
-import { assertUnlinkable, isLocalStrategy, userCredentials } from './userCredentials.ts'
+import {
+  assertUnlinkable,
+  authLockKey,
+  countAlternativeLogins,
+  isLocalStrategy,
+  userCredentials
+} from './userCredentials.ts'
+import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
+import { DISCONNECTED_AUTH_KEY, strategyEntries } from '../helpers/userAuthEntries.ts'
 import { installTestWiki } from '../test/mocks.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { auditLog as auditLogTable, users as usersTable } from '../db/schema.ts'
@@ -12,6 +21,10 @@ const LOCAL_ID = '10000000-0000-4000-8000-000000000001'
 const OIDC_ID = '10000000-0000-4000-8000-000000000002'
 const SAML_ID = '10000000-0000-4000-8000-000000000003'
 const UNKNOWN_USER_ID = '20000000-0000-4000-8000-000000000001'
+const DISABLED_ID = '10000000-0000-4000-8000-000000000004'
+
+/** What `models/authentication.ts#activateStrategies()` leaves loaded: every strategy but `DISABLED_ID`. */
+const LOADED_STRATEGIES = { [LOCAL_ID]: {}, [OIDC_ID]: {}, [SAML_ID]: {} }
 
 let fixtures: TestFixtures
 
@@ -59,7 +72,10 @@ describe('userCredentials.assertUnlinkable', () => {
   let wiki: { restore(): void }
 
   before(() => {
-    wiki = installTestWiki({ config: { security: { allowPasskeys: true } } })
+    wiki = installTestWiki({
+      config: { security: { allowPasskeys: true } },
+      auth: { strategies: LOADED_STRATEGIES }
+    })
   })
 
   after(() => wiki.restore())
@@ -90,6 +106,11 @@ describe('userCredentials.assertUnlinkable', () => {
   test('another linked provider counts as another way in', () => {
     const user = { auth: { [OIDC_ID]: { id: 'p1' }, [SAML_ID]: { id: 'p2' } } }
     assert.doesNotThrow(() => assertUnlinkable(user, OIDC_ID))
+  })
+
+  test('a provider whose strategy is disabled or deleted does not count', () => {
+    const user = { auth: { [OIDC_ID]: { id: 'p1' }, [DISABLED_ID]: { id: 'p2' } } }
+    assert.throws(() => assertUnlinkable(user, OIDC_ID), /ERR_UNLINK_LAST_LOGIN_METHOD/)
   })
 
   test('a password the account holder knows counts as another way in', () => {
@@ -167,6 +188,7 @@ describe('userCredentials.describeLinkedProviders reports canDisconnect', () => 
   before(() => {
     wiki = installTestWiki({
       config: { security: { allowPasskeys: true } },
+      auth: { strategies: LOADED_STRATEGIES },
       data: {
         systemIds: { localAuthId: LOCAL_ID },
         authentication: [
@@ -224,6 +246,11 @@ describe('userCredentials.describeLinkedProviders reports canDisconnect', () => 
     assert.deepEqual(byId(await userCredentials.describeLinkedProviders(user)), expected)
   })
 
+  test('a provider is not disconnectable when the only other is disabled', async () => {
+    const user = { auth: { [OIDC_ID]: { id: 'p1' }, [DISABLED_ID]: { id: 'p2' } } }
+    assert.equal(byId(await userCredentials.describeLinkedProviders(user))[OIDC_ID], false)
+  })
+
   test('two providers each leave the other as a way in', async () => {
     const user = { auth: { [OIDC_ID]: { id: 'p1' }, [SAML_ID]: { id: 'p2' } } }
     assert.deepEqual(byId(await userCredentials.describeLinkedProviders(user)), {
@@ -249,6 +276,7 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
     ;({ mail: mailModel } = await import('./mail.ts'))
     await ensureTemporal()
     CARDINAL.data.systemIds = { ...CARDINAL.data.systemIds, localAuthId: LOCAL_ID } as any
+    CARDINAL.auth.strategies = { ...LOADED_STRATEGIES } as any
   })
 
   async function seedUser(auth: Record<string, any>): Promise<string> {
@@ -376,6 +404,22 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
     assert.equal(sendMock.mock.callCount(), 0)
   })
 
+  test('refuses when the only other provider belongs to a disabled strategy', async (t) => {
+    const sendMock = t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {})
+    const userId = await seedUser({ [OIDC_ID]: { id: 'p' }, [DISABLED_ID]: { id: 'q' } })
+
+    await assert.rejects(
+      userCredentials.unlinkStrategy({
+        userId,
+        strategyId: OIDC_ID,
+        actor: { id: userId, name: 'Unlink User' }
+      }),
+      /ERR_UNLINK_LAST_LOGIN_METHOD/
+    )
+    assert.deepEqual((await authOf(userId))[OIDC_ID], { id: 'p' })
+    assert.equal(sendMock.mock.callCount(), 0)
+  })
+
   test('refuses an account that does not exist', async () => {
     await assert.rejects(
       userCredentials.unlinkStrategy({
@@ -400,7 +444,7 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
     assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1)
     const rejected = results.find((r) => r.status === 'rejected') as PromiseRejectedResult
     assert.match(rejected.reason.message, /ERR_UNLINK_LAST_LOGIN_METHOD/)
-    assert.equal(Object.keys(await authOf(userId)).length, 1)
+    assert.equal(strategyEntries(await authOf(userId)).length, 1)
   })
 
   describe('an account a provider provisioned', () => {
@@ -501,6 +545,107 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
     assert.equal((await authOf(userId))[LOCAL_ID].isPasswordKnown, true)
   })
 
+  describe('setPasswordLoginEnabled', () => {
+    function localStrategy(t: any): void {
+      t.mock.method(CARDINAL.models.authentication, 'getStrategyById', async (id: string) => ({
+        id,
+        module: id === LOCAL_ID ? 'local' : 'test-oidc'
+      }))
+    }
+
+    test('turns password login off while a provider remains a way in', async (t) => {
+      localStrategy(t)
+      const userId = await seedUser({
+        [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
+        [OIDC_ID]: { id: 'p' }
+      })
+
+      await userCredentials.setPasswordLoginEnabled({
+        userId,
+        strategyId: LOCAL_ID,
+        isEnabled: false
+      })
+      assert.equal((await authOf(userId))[LOCAL_ID].restrictLogin, true)
+    })
+
+    test('refuses to turn it off when nothing else signs the account in', async (t) => {
+      localStrategy(t)
+      const userId = await seedUser({ [LOCAL_ID]: { password: 'hash', isPasswordKnown: true } })
+
+      await assert.rejects(
+        userCredentials.setPasswordLoginEnabled({
+          userId,
+          strategyId: LOCAL_ID,
+          isEnabled: false
+        }),
+        /ERR_NO_OTHER_LOGIN_METHOD/
+      )
+      assert.equal((await authOf(userId))[LOCAL_ID].restrictLogin, undefined)
+    })
+
+    test('refuses an account that does not exist', async (t) => {
+      localStrategy(t)
+      await assert.rejects(
+        userCredentials.setPasswordLoginEnabled({
+          userId: UNKNOWN_USER_ID,
+          strategyId: LOCAL_ID,
+          isEnabled: false
+        }),
+        /ERR_INVALID_USER/
+      )
+    })
+
+    test('checks the row as it is once the lock is held, not as it was before', async (t) => {
+      localStrategy(t)
+      const userId = await seedUser({
+        [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
+        [OIDC_ID]: { id: 'p' }
+      })
+
+      let pending!: Promise<void>
+      await withAdvisoryLock(authLockKey(userId), async () => {
+        pending = userCredentials.setPasswordLoginEnabled({
+          userId,
+          strategyId: LOCAL_ID,
+          isEnabled: false
+        })
+        pending.catch(() => {})
+        // -> Long enough for a read taken outside the lock to have happened already; then the
+        //    provider goes, the way a concurrent `unlinkStrategy()` holding the lock would take it
+        await delay(300)
+        await fixtures.db
+          .update(usersTable)
+          .set({ auth: { [LOCAL_ID]: { password: 'hash', isPasswordKnown: true } } })
+          .where(eq(usersTable.id, userId))
+      })
+
+      await assert.rejects(pending, /ERR_NO_OTHER_LOGIN_METHOD/)
+      assert.equal((await authOf(userId))[LOCAL_ID].restrictLogin, undefined)
+    })
+
+    test('and a concurrent disconnect of the only provider cannot both succeed', async (t) => {
+      localStrategy(t)
+      t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {})
+      const userId = await seedUser({
+        [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
+        [OIDC_ID]: { id: 'p' }
+      })
+
+      const results = await Promise.allSettled([
+        userCredentials.setPasswordLoginEnabled({ userId, strategyId: LOCAL_ID, isEnabled: false }),
+        userCredentials.unlinkStrategy({
+          userId,
+          strategyId: OIDC_ID,
+          actor: { id: userId, name: 'Unlink User' }
+        })
+      ])
+
+      assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1)
+      const auth = await authOf(userId)
+      assert.ok(auth[OIDC_ID] || !auth[LOCAL_ID].restrictLogin)
+    })
+  })
+
   describe('a disconnected identity at its next login', () => {
     let loginModel: any
 
@@ -522,11 +667,20 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
       }
     }
 
-    async function seedAndUnlink(t: any): Promise<{ userId: string; email: string }> {
+    // -> One per test: `users.getByProviderLink()` resolves an identity to the first account holding
+    //    it, and every test here shares the one schema
+    function freshIdentity(): string {
+      return `provider-${Math.random().toString(36).slice(2)}`
+    }
+
+    async function seedAndUnlink(
+      t: any
+    ): Promise<{ userId: string; email: string; identity: string }> {
       t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {})
+      const identity = freshIdentity()
       const userId = await seedUser({
         [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
-        [OIDC_ID]: { id: 'provider-identity' }
+        [OIDC_ID]: { id: identity }
       })
       const email = ((await usersModel.getById(userId)) as any).email
       await userCredentials.unlinkStrategy({
@@ -534,14 +688,14 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
         strategyId: OIDC_ID,
         actor: { id: userId, name: 'Unlink User' }
       })
-      return { userId, email }
+      return { userId, email, identity }
     }
 
     test('is refused with ERR_ACCOUNT_NOT_LINKED while trustEmailForLinking is off', async (t) => {
-      const { email } = await seedAndUnlink(t)
+      const { email, identity } = await seedAndUnlink(t)
       await assert.rejects(
         loginModel.findOrCreateProviderUser(strategy(false), {
-          id: 'provider-identity',
+          id: identity,
           email,
           name: 'Unlink User'
         }),
@@ -549,15 +703,190 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
       )
     })
 
-    test('is linked again when trustEmailForLinking is on', async (t) => {
-      const { userId, email } = await seedAndUnlink(t)
-      const result = await loginModel.findOrCreateProviderUser(strategy(true), {
-        id: 'provider-identity',
+    function signInMethodAddedFor(userId: string) {
+      return fixtures.db
+        .select()
+        .from(auditLogTable)
+        .where(
+          and(eq(auditLogTable.event, 'user.signInMethodAdded'), eq(auditLogTable.targetId, userId))
+        )
+    }
+
+    test('is refused even while trustEmailForLinking is on, with no link, audit entry or notice', async (t) => {
+      const { userId, email, identity } = await seedAndUnlink(t)
+      const sendMock = t.mock.method(mailModel, 'sendSignInMethodAdded', async () => {})
+
+      await assert.rejects(
+        loginModel.findOrCreateProviderUser(strategy(true), {
+          id: identity,
+          email,
+          name: 'Unlink User'
+        }),
+        /ERR_ACCOUNT_NOT_LINKED/
+      )
+      assert.equal((await authOf(userId))[OIDC_ID], undefined)
+      assert.equal((await signInMethodAddedFor(userId)).length, 0)
+      assert.equal(sendMock.mock.callCount(), 0)
+    })
+
+    test('records the disconnect without it reading as a sign-in method anywhere', async (t) => {
+      const { userId } = await seedAndUnlink(t)
+      const user = await usersModel.getById(userId)
+
+      assert.ok((user as any).auth[DISCONNECTED_AUTH_KEY][OIDC_ID])
+      assert.deepEqual(
+        (await userCredentials.describeLinkedProviders(user)).map((p) => p.authId),
+        [LOCAL_ID]
+      )
+      assert.equal(countAlternativeLogins(user, LOCAL_ID), 0)
+    })
+
+    test('is let in again once the account holder reconnects it through the connect flow', async (t) => {
+      const { userId, email, identity } = await seedAndUnlink(t)
+      t.mock.method(mailModel, 'sendSignInMethodAdded', async () => {})
+
+      await userCredentials.linkStrategy({
+        userId,
+        strategyId: OIDC_ID,
+        identity: { id: identity, email },
+        methodName: 'Test Provider'
+      })
+      assert.equal((await authOf(userId))[DISCONNECTED_AUTH_KEY], undefined)
+
+      const result = await loginModel.findOrCreateProviderUser(strategy(false), {
+        id: identity,
         email,
         name: 'Unlink User'
       })
       assert.equal(result.id, userId)
-      assert.equal(result.auth[OIDC_ID].id, 'provider-identity')
+    })
+
+    test('reconnecting one provider leaves another still disconnected', async (t) => {
+      t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {})
+      t.mock.method(mailModel, 'sendSignInMethodAdded', async () => {})
+      const userId = await seedUser({
+        [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
+        [OIDC_ID]: { id: freshIdentity() },
+        [SAML_ID]: { id: freshIdentity() }
+      })
+      const actor = { id: userId, name: 'Unlink User' }
+      await userCredentials.unlinkStrategy({ userId, strategyId: OIDC_ID, actor })
+      await userCredentials.unlinkStrategy({ userId, strategyId: SAML_ID, actor })
+
+      await userCredentials.linkStrategy({
+        userId,
+        strategyId: OIDC_ID,
+        identity: { id: freshIdentity(), email: 'x@example.com' },
+        methodName: 'Test Provider'
+      })
+      assert.deepEqual(Object.keys((await authOf(userId))[DISCONNECTED_AUTH_KEY]), [SAML_ID])
+    })
+
+    test('a disconnect landing mid-login is not undone by that login', async () => {
+      const identity = freshIdentity()
+      const userId = await seedUser({
+        [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
+        [OIDC_ID]: { id: identity }
+      })
+      const email = ((await usersModel.getById(userId)) as any).email
+
+      let pending!: Promise<any>
+      await withAdvisoryLock(authLockKey(userId), async () => {
+        pending = loginModel.findOrCreateProviderUser(strategy(true), {
+          id: identity,
+          email,
+          name: 'Unlink User'
+        })
+        pending.catch(() => {})
+        // -> Long enough for the login's own read to have found the stored link; then the
+        //    disconnect lands, the way `unlinkStrategy()` holding the lock would write it
+        await delay(300)
+        await fixtures.db
+          .update(usersTable)
+          .set({
+            auth: {
+              [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
+              [DISCONNECTED_AUTH_KEY]: { [OIDC_ID]: '2026-09-23T00:00:00.000Z' }
+            }
+          })
+          .where(eq(usersTable.id, userId))
+      })
+
+      await assert.rejects(pending, /ERR_ACCOUNT_NOT_LINKED/)
+      assert.equal((await authOf(userId))[OIDC_ID], undefined)
+    })
+  })
+
+  describe('an account trustEmailForLinking binds for the first time', () => {
+    let loginModel: any
+
+    before(async () => {
+      loginModel = (await import('./login.ts')).login
+    })
+
+    test('is audited and mailed as the connect flow is', async (t) => {
+      const sendMock = t.mock.method(mailModel, 'sendSignInMethodAdded', async () => {})
+      const userId = await seedUser({ [LOCAL_ID]: { password: 'hash', isPasswordKnown: true } })
+      const email = ((await usersModel.getById(userId)) as any).email
+
+      const result = await loginModel.findOrCreateProviderUser(
+        {
+          id: OIDC_ID,
+          module: 'test-oidc',
+          displayName: 'Test Provider',
+          isEnabled: true,
+          autoProvision: false,
+          allowedEmailRegex: '',
+          autoEnrollGroups: [],
+          trustEmailForLinking: true,
+          config: {}
+        },
+        { id: `provider-${Math.random().toString(36).slice(2)}`, email, name: 'Unlink User' },
+        { siteId: fixtures.siteId, ip: '203.0.113.7' }
+      )
+      assert.equal(result.id, userId)
+
+      const entries = await fixtures.db
+        .select()
+        .from(auditLogTable)
+        .where(
+          and(eq(auditLogTable.event, 'user.signInMethodAdded'), eq(auditLogTable.targetId, userId))
+        )
+      assert.equal(entries.length, 1)
+      assert.equal(entries[0]!.actorId, userId)
+      assert.deepEqual(entries[0]!.detail, { strategyId: OIDC_ID, trustedEmail: true })
+
+      assert.equal(sendMock.mock.callCount(), 1)
+      const notice = sendMock.mock.calls[0]!.arguments[0] as any
+      assert.equal(notice.to, email)
+      assert.equal(notice.methodName, 'Test Provider')
+      assert.equal(notice.siteId, fixtures.siteId)
+    })
+
+    test('a returning login through the stored link announces nothing', async (t) => {
+      const sendMock = t.mock.method(mailModel, 'sendSignInMethodAdded', async () => {})
+      const identity = `provider-${Math.random().toString(36).slice(2)}`
+      const userId = await seedUser({
+        [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
+        [OIDC_ID]: { id: identity }
+      })
+      const email = ((await usersModel.getById(userId)) as any).email
+
+      await loginModel.findOrCreateProviderUser(
+        {
+          id: OIDC_ID,
+          module: 'test-oidc',
+          displayName: 'Test Provider',
+          isEnabled: true,
+          autoProvision: false,
+          allowedEmailRegex: '',
+          autoEnrollGroups: [],
+          trustEmailForLinking: true,
+          config: {}
+        },
+        { id: identity, email, name: 'Unlink User' }
+      )
+      assert.equal(sendMock.mock.callCount(), 0)
     })
   })
 })

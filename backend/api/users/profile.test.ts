@@ -194,6 +194,32 @@ describe('profile passkeys: security.allowPasskeys', () => {
     assert.equal(recorded()[0].event, 'user.passkeyRemoved')
     assert.equal(recorded()[0].targetLabel, 'Laptop')
   })
+
+  test('removing the last way into the account answers 400 with its code and records nothing', async () => {
+    remove.mock.mockImplementationOnce(async () => {
+      throw new Error('ERR_PASSKEY_LAST_LOGIN_METHOD')
+    })
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/users/profile/passkeys/${PASSKEY_ID}`,
+      headers: session
+    })
+    assert.equal(del.statusCode, 400)
+    assert.equal(del.json().message, 'ERR_PASSKEY_LAST_LOGIN_METHOD')
+    assert.equal(record.mock.calls.length, 0)
+  })
+
+  test('an unknown passkey id is still a 404', async () => {
+    remove.mock.mockImplementationOnce(async () => false)
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/users/profile/passkeys/${PASSKEY_ID}`,
+      headers: session
+    })
+    assert.equal(del.statusCode, 404)
+  })
 })
 
 describe('profile password change and allowPasswordChange', () => {

@@ -8,6 +8,9 @@ import { isoBase64URL } from '@simplewebauthn/server/helpers'
 import { eq, sql } from 'drizzle-orm'
 import { users as usersTable } from '../db/schema.ts'
 import { isValidUuid } from '../helpers/common.ts'
+import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
+import { passkeysAllowed } from './security.ts'
+import { authLockKey, countAlternativeLogins } from './userCredentials.ts'
 import type {
   AuthenticationResponseJSON,
   AuthenticatorTransportFuture,
@@ -245,17 +248,35 @@ class Passkeys {
   /**
    * The credential itself lives on the user's device and has to be removed there too, which is what
    * the client says when this succeeds.
+   *
+   * Refused when the passkey is the account's last way in — the guard `unlinkStrategy()` applies to
+   * a provider, under the same per-user lock (`userCredentials.ts#authLockKey`), and re-read inside
+   * it: removing the last passkey while the last provider is disconnected would otherwise have each
+   * see the other as the way in that remains. While passkeys are switched off instance-wide none of
+   * them is a way in, so removing one takes nothing away.
+   *
+   * @returns false when the user has no passkey with this id
+   * @throws `ERR_PASSKEY_LAST_LOGIN_METHOD`
    */
   async remove(userId: string, passkeyId: string): Promise<boolean> {
-    const store = await this.getStore(userId)
-    const authenticators = store.authenticators ?? []
-    const remaining = authenticators.filter((pk) => pk.id !== passkeyId)
-    if (remaining.length === authenticators.length) {
-      return false
-    }
-    await this.saveStore(userId, { ...store, authenticators: remaining })
-    CARDINAL.models.flags.authDebug(`User ${userId} removed a passkey`)
-    return true
+    return withAdvisoryLock(authLockKey(userId), async () => {
+      const user = await CARDINAL.models.users.getById(userId)
+      const store = (user?.passkeys ?? {}) as PasskeyStore
+      const authenticators = store.authenticators ?? []
+      const remaining = authenticators.filter((pk) => pk.id !== passkeyId)
+      if (!user || remaining.length === authenticators.length) {
+        return false
+      }
+      if (
+        passkeysAllowed() &&
+        countAlternativeLogins({ ...user, passkeys: { authenticators: remaining } }) < 1
+      ) {
+        throw new Error('ERR_PASSKEY_LAST_LOGIN_METHOD')
+      }
+      await this.saveStore(userId, { ...store, authenticators: remaining })
+      CARDINAL.models.flags.authDebug(`User ${userId} removed a passkey`)
+      return true
+    })
   }
 
   /**

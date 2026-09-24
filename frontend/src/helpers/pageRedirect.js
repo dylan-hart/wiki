@@ -75,6 +75,17 @@ export function isFollowable({ kind, target } = {}) {
     : value.startsWith('/') && !value.startsWith('//')
 }
 
+/** U+0000-U+001F and U+007F. */
+function hasAsciiControlCharacter(value) {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if (code < 0x20 || code === 0x7f) {
+      return true
+    }
+  }
+  return false
+}
+
 /**
  * `isFollowable`'s kind-agnostic twin, for a single string that could be EITHER shape — a login/
  * logout redirect target, rather than a redirection page's own stored `{ kind, target }`. A rooted
@@ -86,8 +97,14 @@ export function isFollowable({ kind, target } = {}) {
  * one would otherwise reach unchecked. `new URL(value, base)` cannot decide this on its own — it
  * parses `javascript:…` without throwing (`.protocol` comes back `'javascript:'`), so a caller
  * asking only "did it parse" would let it through.
+ *
+ * Any ASCII control character refuses the value outright, as the backend does: a browser strips
+ * tab, CR and LF from anywhere in a URL, so `/\t/evil.example` would navigate to `//evil.example`.
  */
 export function isFollowableRedirectTarget(value) {
+  if (typeof value === 'string' && hasAsciiControlCharacter(value)) {
+    return false
+  }
   const target = (value ?? '').trim()
   if (target.length < 1) {
     return false

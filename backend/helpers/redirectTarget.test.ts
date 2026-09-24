@@ -15,6 +15,20 @@ describe('isFollowableRedirectTarget', () => {
     assert.equal(isFollowableRedirectTarget('/\\evil.example'), false)
   })
 
+  test('refuses a value carrying an ASCII tab, CR or LF, which browsers strip before parsing', () => {
+    assert.equal(isFollowableRedirectTarget('/\t/evil.example'), false)
+    assert.equal(isFollowableRedirectTarget('/\r/evil.example'), false)
+    assert.equal(isFollowableRedirectTarget('/\n/evil.example'), false)
+    assert.equal(isFollowableRedirectTarget('/\t\\evil.example'), false)
+  })
+
+  test('refuses any other ASCII control character, wherever it sits', () => {
+    assert.equal(isFollowableRedirectTarget('\u0000/some/page'), false)
+    assert.equal(isFollowableRedirectTarget('/some/page\u001f'), false)
+    assert.equal(isFollowableRedirectTarget('/some/\u007fpage'), false)
+    assert.equal(isFollowableRedirectTarget('https://example.com/\tpage'), false)
+  })
+
   test('refuses javascript:', () => {
     assert.equal(isFollowableRedirectTarget('javascript:alert(1)'), false)
   })

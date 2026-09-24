@@ -1,8 +1,31 @@
-import { describe, mock, test } from 'node:test'
+import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { setTimeout as delay } from 'node:timers/promises'
 import { isoBase64URL } from '@simplewebauthn/server/helpers'
+import { eq } from 'drizzle-orm'
 import { passkeys, resolveOrigin } from './passkeys.ts'
+import { authLockKey, userCredentials } from './userCredentials.ts'
+import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
+import { users as usersTable } from '../db/schema.ts'
 import { installTestWiki } from '../test/mocks.ts'
+import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
+
+let fixtures: TestFixtures
+
+before(async () => {
+  if (!hasTestDatabase()) {
+    return
+  }
+  fixtures = await setupTestDb()
+})
+
+after(async () => {
+  if (!hasTestDatabase()) {
+    return
+  }
+  await teardownTestDb()
+})
 
 describe('models/passkeys resolveOrigin', () => {
   test('a matching https origin is echoed back verbatim', () => {
@@ -151,5 +174,112 @@ describe('models/passkeys verifyLogin — login.failed audit recording', () => {
     } finally {
       wiki.restore()
     }
+  })
+})
+
+describe('models/passkeys remove (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  const LOCAL_ID = '10000000-0000-4000-8000-000000000001'
+  const OIDC_ID = '10000000-0000-4000-8000-000000000002'
+
+  before(async () => {
+    await ensureTemporal()
+    CARDINAL.data.systemIds = { ...CARDINAL.data.systemIds, localAuthId: LOCAL_ID } as any
+    CARDINAL.auth.strategies = { [LOCAL_ID]: {}, [OIDC_ID]: {} } as any
+    CARDINAL.config.security = { ...CARDINAL.config.security, allowPasskeys: true }
+  })
+
+  async function seedUser(auth: Record<string, any>, passkeyIds: string[]): Promise<string> {
+    const [row] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: `passkey-${Math.random().toString(36).slice(2)}@example.com`,
+        name: 'Passkey User',
+        isActive: true,
+        isVerified: true,
+        auth,
+        passkeys: { authenticators: passkeyIds.map((id) => ({ id, name: id })) }
+      })
+      .returning({ id: usersTable.id })
+    return row!.id
+  }
+
+  async function passkeyIdsOf(userId: string): Promise<string[]> {
+    return (await passkeys.list(userId)).map((pk) => pk.id)
+  }
+
+  const RESTRICTED_PASSWORD = { [LOCAL_ID]: { password: 'hash', restrictLogin: true } }
+
+  test('refuses to remove the passkey that is the only way in, keeping it', async () => {
+    const userId = await seedUser(RESTRICTED_PASSWORD, ['k1'])
+
+    await assert.rejects(passkeys.remove(userId, 'k1'), /ERR_PASSKEY_LAST_LOGIN_METHOD/)
+    assert.deepEqual(await passkeyIdsOf(userId), ['k1'])
+  })
+
+  test('removes one while another passkey remains', async () => {
+    const userId = await seedUser(RESTRICTED_PASSWORD, ['k1', 'k2'])
+
+    assert.equal(await passkeys.remove(userId, 'k1'), true)
+    assert.deepEqual(await passkeyIdsOf(userId), ['k2'])
+  })
+
+  test('removes the last one while a linked provider remains', async () => {
+    const userId = await seedUser({ ...RESTRICTED_PASSWORD, [OIDC_ID]: { id: 'p' } }, ['k1'])
+
+    assert.equal(await passkeys.remove(userId, 'k1'), true)
+    assert.deepEqual(await passkeyIdsOf(userId), [])
+  })
+
+  test('removes the last one while passkeys are off: it was no way in to take away', async () => {
+    CARDINAL.config.security.allowPasskeys = false
+    try {
+      const userId = await seedUser(RESTRICTED_PASSWORD, ['k1'])
+      assert.equal(await passkeys.remove(userId, 'k1'), true)
+    } finally {
+      CARDINAL.config.security.allowPasskeys = true
+    }
+  })
+
+  test('answers false for a passkey the account does not have', async () => {
+    const userId = await seedUser(RESTRICTED_PASSWORD, ['k1'])
+
+    assert.equal(await passkeys.remove(userId, 'nope'), false)
+    assert.deepEqual(await passkeyIdsOf(userId), ['k1'])
+  })
+
+  test('checks the row as it is once the lock is held, not as it was before', async () => {
+    const userId = await seedUser({ ...RESTRICTED_PASSWORD, [OIDC_ID]: { id: 'p' } }, ['k1'])
+
+    let pending!: Promise<boolean>
+    await withAdvisoryLock(authLockKey(userId), async () => {
+      pending = passkeys.remove(userId, 'k1')
+      pending.catch(() => {})
+      // -> Long enough for a read taken outside the lock to have happened already; then the
+      //    provider goes, the way a concurrent `unlinkStrategy()` holding the lock would take it
+      await delay(300)
+      await fixtures.db
+        .update(usersTable)
+        .set({ auth: RESTRICTED_PASSWORD })
+        .where(eq(usersTable.id, userId))
+    })
+
+    await assert.rejects(pending, /ERR_PASSKEY_LAST_LOGIN_METHOD/)
+    assert.deepEqual(await passkeyIdsOf(userId), ['k1'])
+  })
+
+  test('and a concurrent disconnect of the only provider cannot both succeed', async (t) => {
+    t.mock.method(CARDINAL.models.mail, 'sendSignInMethodRemoved', async () => {})
+    const userId = await seedUser({ ...RESTRICTED_PASSWORD, [OIDC_ID]: { id: 'p' } }, ['k1'])
+
+    const results = await Promise.allSettled([
+      passkeys.remove(userId, 'k1'),
+      userCredentials.unlinkStrategy({
+        userId,
+        strategyId: OIDC_ID,
+        actor: { id: userId, name: 'Passkey User' }
+      })
+    ])
+
+    assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1)
   })
 })

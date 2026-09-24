@@ -115,6 +115,14 @@ describe('isFollowableRedirectTarget', () => {
   it('refuses a relative (non-rooted) path', () => {
     expect(isFollowableRedirectTarget('dashboard')).toBe(false)
   })
+
+  it('refuses a value carrying an ASCII control character a browser would strip', () => {
+    expect(isFollowableRedirectTarget('/\t/attacker.example')).toBe(false)
+    expect(isFollowableRedirectTarget('/\n/attacker.example')).toBe(false)
+    expect(isFollowableRedirectTarget('/\r/attacker.example')).toBe(false)
+    expect(isFollowableRedirectTarget('/dashboard\u0000')).toBe(false)
+    expect(isFollowableRedirectTarget('/dashboard\u007f')).toBe(false)
+  })
 })
 
 describe('resolveRedirectTarget', () => {
