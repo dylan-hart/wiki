@@ -1,5 +1,5 @@
 import type { McpServer, CallToolResult } from '@modelcontextprotocol/server'
-import { McpToolError, type McpAuthContext, type McpAuthContextGetter } from '../auth.ts'
+import { McpToolError, actorFor, type McpAuthContext, type McpAuthContextGetter } from '../auth.ts'
 import { resolveRequestedSite } from '../site.ts'
 import { siteIdArg, toResult } from './shared.ts'
 
@@ -15,8 +15,10 @@ export interface ListWatchedPagesArgs {
  * Authed on `ctx.userId` directly rather than through `pageActorFor()`: a watch is not a page-rule
  * grant, so the only question is whether there is a real user whose watch list this would be.
  *
- * `listForUser()` re-checks `read:pages` per row against each page's current state, so a page the
- * caller's groups have since lost drops out on its own and nothing further is filtered here.
+ * `listForUser()` re-checks `read:pages` per row against each page's current state, as the KEY
+ * (`actorFor(ctx)`) rather than its owner, so a page the caller's groups have since lost, or one the
+ * key's scope, classification allow-set or site pin shuts out, drops out on its own and nothing
+ * further is filtered here.
  */
 export async function handleListWatchedPages(
   ctx: McpAuthContext,
@@ -28,7 +30,7 @@ export async function handleListWatchedPages(
       'Listing watched pages requires a personal access token — an admin-issued key has no user whose watch list this would be.'
     )
   }
-  const pages = await CARDINAL.models.pageWatching.listForUser(site.id, ctx.userId)
+  const pages = await CARDINAL.models.pageWatching.listForUser(site.id, ctx.userId, actorFor(ctx))
   return toResult(pages)
 }
 

@@ -171,7 +171,13 @@ async function routes(app: FastifyInstance) {
       if (!userId) {
         return reply
       }
-      return CARDINAL.models.pageWatching.listForUser(req.params.siteId, userId)
+      // -> The request's own actor, so an API key's scope and classification narrowing hold here
+      //    as they do on the page reads the list links to.
+      return CARDINAL.models.pageWatching.listForUser(
+        req.params.siteId,
+        userId,
+        CARDINAL.models.groups.actorForRequest(req)
+      )
     }
   )
 

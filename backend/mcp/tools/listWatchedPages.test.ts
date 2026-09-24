@@ -35,8 +35,8 @@ function ctx({ userId = 'user-1' as string | null } = {}) {
     sites: { [SITE_ID]: { id: SITE_ID, hostname: 'a.example.com', isEnabled: true, config: {} } },
     models: {
       pageWatching: {
-        listForUser: async (siteId: string, watchingUserId: string) => {
-          listForUserCalls.push({ siteId, userId: watchingUserId })
+        listForUser: async (siteId: string, watchingUserId: string, actor: unknown) => {
+          listForUserCalls.push({ siteId, userId: watchingUserId, actor })
           return WATCHED_PAGES
         }
       }
@@ -77,7 +77,8 @@ test('handleListWatchedPages: lists the token owner’s own watched pages on the
   const c = ctx()
   const result = await handleListWatchedPages(c, { siteId: SITE_ID })
   assert.equal(listForUserCalls.length, 1)
-  assert.deepEqual(listForUserCalls[0], { siteId: SITE_ID, userId: 'user-1' })
+  assert.equal(listForUserCalls[0].siteId, SITE_ID)
+  assert.equal(listForUserCalls[0].userId, 'user-1')
   const pages = textOf(result)
   assert.equal(pages.length, 1)
   assert.equal(pages[0].pageId, 'page-1')
@@ -89,4 +90,21 @@ test('handleListWatchedPages: resolves the default site when siteId is omitted',
   const c = ctx()
   await handleListWatchedPages(c, {})
   assert.equal(listForUserCalls[0].siteId, SITE_ID)
+})
+
+test('handleListWatchedPages: filters as the key, so its scope, classifications and site pin reach the model', async () => {
+  const c = {
+    ...ctx(),
+    scope: ['read:comments'],
+    allowedClassifications: ['level-1'],
+    siteId: SITE_ID
+  }
+  await handleListWatchedPages(c, { siteId: SITE_ID })
+  assert.deepEqual(listForUserCalls[0].actor, {
+    groupIds: [GROUP_ID],
+    permissions: [],
+    scope: ['read:comments'],
+    allowedClassifications: ['level-1'],
+    siteId: SITE_ID
+  })
 })
