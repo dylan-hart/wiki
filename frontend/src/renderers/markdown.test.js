@@ -1459,6 +1459,50 @@ describe('sanitizeForPreview', () => {
     )
   })
 
+  it('strips inline event handlers when scripts is not permitted, and keeps them when it is', () => {
+    const html = '<img src="x.png" onerror="alert(1)"><p class="keep" ONCLICK="alert(2)">t</p>'
+
+    const stripped = sanitizeForPreview(html, { scripts: false, styles: true })
+
+    expect(stripped.toLowerCase()).not.toContain('onerror')
+    expect(stripped.toLowerCase()).not.toContain('onclick')
+    expect(stripped).toContain('src="x.png"')
+    expect(stripped).toContain('class="keep"')
+    expect(sanitizeForPreview(html, { scripts: true, styles: false })).toContain(
+      'onerror="alert(1)"'
+    )
+  })
+
+  it('strips script and non-image data: URLs when scripts is not permitted', () => {
+    const html =
+      '<a href="javascript:alert(1)">a</a>' +
+      '<a href=" JaVa&#x09;ScRiPt:alert(2)">b</a>' +
+      '<a href="vbscript:msgbox(3)">c</a>' +
+      '<a href="data:text/html,&lt;script&gt;alert(4)&lt;/script&gt;">d</a>' +
+      '<form action="javascript:alert(5)"><button formaction="javascript:alert(6)">e</button></form>' +
+      '<svg><a xlink:href="javascript:alert(7)"><text>f</text></a></svg>' +
+      '<a href="https://example.com/">g</a>' +
+      '<img src="data:image/png;base64,AAAA">'
+
+    const result = sanitizeForPreview(html, { scripts: false, styles: true })
+
+    expect(result.toLowerCase()).not.toContain('script:')
+    expect(result).not.toContain('data:text/html')
+    expect(result).toContain('<a href="https://example.com/">g</a>')
+    expect(result).toContain('src="data:image/png;base64,AAAA"')
+  })
+
+  it('drops an SVG animation that could set a link to a script URL after the scan', () => {
+    const html =
+      '<svg><a><animate attributeName="href" values="javascript:alert(1)"></animate>' +
+      '<set attributeName="href" to="javascript:alert(2)"></set><text>x</text></a></svg>'
+
+    const result = sanitizeForPreview(html, { scripts: false, styles: true })
+
+    expect(result).not.toContain('javascript:')
+    expect(result).toContain('<text>x</text>')
+  })
+
   it('does not execute a gated <script> while scanning it for removal', () => {
     globalThis.__markdownTestSanitizeForPreviewRan = false
     const html = '<script>globalThis.__markdownTestSanitizeForPreviewRan = true</script>'

@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, describe, test } from 'node:test'
+import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
 import { asc, eq } from 'drizzle-orm'
 import pagesRoutes from './index.ts'
-import { pageHistory as pageHistoryTable, pages as pagesTable } from '../../db/schema.ts'
+import {
+  groups as groupsTable,
+  pageHistory as pageHistoryTable,
+  pages as pagesTable
+} from '../../db/schema.ts'
+import { CustomError } from '../../helpers/common.ts'
 import type { PageActor } from '../../models/pages.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
@@ -24,6 +29,7 @@ describe('PUT /sites/:siteId/pages/:pageId/tasks/:index', () => {
   const UPDATED_AT = new Date('2026-09-21T12:00:00.123Z')
 
   let updatePageCalls: any[] = []
+  let updatePageImpl: (() => Promise<any>) | null
   let grantedPermissions: Set<string>
   let pageOverrides: Record<string, unknown>
   let app: FastifyInstance
@@ -50,8 +56,17 @@ describe('PUT /sites/:siteId/pages/:pageId/tasks/:index', () => {
                   ...pageOverrides
                 }
               : null,
-          updatePage: async (siteId: string, id: string, patch: any) => {
-            updatePageCalls.push({ siteId, id, patch })
+          updatePage: async (
+            siteId: string,
+            id: string,
+            patch: any,
+            _actor: unknown,
+            options: unknown
+          ) => {
+            updatePageCalls.push({ siteId, id, patch, options })
+            if (updatePageImpl) {
+              return updatePageImpl()
+            }
             return { id, authorName: 'Someone', updatedAt: new Date('2026-09-21T12:05:00.456Z') }
           }
         },
@@ -71,6 +86,7 @@ describe('PUT /sites/:siteId/pages/:pageId/tasks/:index', () => {
 
   beforeEach(() => {
     updatePageCalls = []
+    updatePageImpl = null
     grantedPermissions = new Set(['read:pages', 'write:pages'])
     pageOverrides = {}
   })
@@ -111,6 +127,45 @@ describe('PUT /sites/:siteId/pages/:pageId/tasks/:index', () => {
         '<input class="task-list-item-checkbox" disabled="" type="checkbox" checked=""> one'
       )
     )
+  })
+
+  test('writes the render as a stored-render patch, conditional on the updatedAt it read', async () => {
+    const res = await tick(0, {})
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(updatePageCalls[0].options, {
+      storedRenderPatch: true,
+      expectedUpdatedAt: UPDATED_AT
+    })
+  })
+
+  test('rewrites only that checkbox tag, leaving every other byte of the render as stored', async () => {
+    const render =
+      '<p title=\'x\'>A &amp; B<br></p><ul><li><input class="task-list-item-checkbox" type="checkbox" disabled> one</li></ul>' +
+      '<iframe src="https://example.com/embed"></iframe><script>if (a < b) {}</script>'
+    pageOverrides = { content: '- [ ] one\n', render }
+    const res = await tick(0, {})
+    assert.equal(res.statusCode, 200)
+    assert.equal(
+      updatePageCalls[0].patch.render,
+      render.replace(
+        '<input class="task-list-item-checkbox" type="checkbox" disabled>',
+        '<input class="task-list-item-checkbox" type="checkbox" disabled="" checked="">'
+      )
+    )
+  })
+
+  test('answers 409 with the page’s new updatedAt when another save lands before the write', async () => {
+    updatePageImpl = async () => {
+      pageOverrides = { updatedAt: new Date('2026-09-21T12:01:00.789Z') }
+      throw new CustomError(
+        'pageChangedSinceLoad',
+        'This page was changed since you loaded it.',
+        409
+      )
+    }
+    const res = await tick(0, {})
+    assert.equal(res.statusCode, 409)
+    assert.equal(res.json().updatedAt, '2026-09-21T12:01:00.789Z')
   })
 
   test('unticks by removing the checked attribute of that checkbox only', async () => {
@@ -215,6 +270,16 @@ describe(
     let app: FastifyInstance
     let pagesModel: typeof import('../../models/pages.ts').pages
     let actor: PageActor
+    let testSession: any
+
+    const asAdmin = () => {
+      testSession = {
+        authenticated: true,
+        user: { id: fixtures.userId },
+        groups: [],
+        permissions: ['manage:system']
+      }
+    }
 
     before(async () => {
       await ensureTemporal()
@@ -225,13 +290,119 @@ describe(
       app = await buildTestApp({
         routes: pagesRoutes,
         schemas: 'all',
-        session: () => ({
-          authenticated: true,
-          user: { id: fixtures.userId },
-          groups: [],
-          permissions: ['manage:system']
-        })
+        session: () => testSession
       })
+    })
+
+    beforeEach(asAdmin)
+
+    const tickPage = (page: { id: string; updatedAt: Date }, index: number, text: string) =>
+      app.inject({
+        method: 'PUT',
+        url: `/sites/${fixtures.siteId}/pages/${page.id}/tasks/${index}`,
+        payload: {
+          checked: true,
+          text,
+          expectedUpdatedAt: page.updatedAt
+            .toTemporalInstant()
+            .toString({ smallestUnit: 'millisecond' })
+        }
+      })
+
+    const storedRow = async (id: string) =>
+      (await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, id)).limit(1))[0]!
+
+    test('a tick by a writer without write:scripts keeps the embed the page’s author was allowed', async () => {
+      const embed =
+        '<iframe src="https://example.com/embed"></iframe><script>window.ticked = 1</script>'
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'todo/embed',
+          title: 'Embed',
+          editor: 'markdown',
+          content: CONTENT,
+          render: RENDER + embed
+        },
+        actor
+      )
+      const stored = await storedRow(page.id)
+      assert.ok(stored.render!.includes('<iframe'), 'the author may embed, so the fixture must')
+      assert.ok(stored.render!.includes('<script'), 'the author may embed, so the fixture must')
+
+      const [writers] = await fixtures.db
+        .insert(groupsTable)
+        .values({
+          name: 'Todo writers',
+          permissions: [],
+          rules: [
+            {
+              id: 'todo-writers',
+              name: 'Write todo',
+              roles: ['read:pages', 'write:pages'],
+              match: 'START',
+              mode: 'ALLOW',
+              path: 'todo',
+              locales: [],
+              sites: []
+            }
+          ]
+        })
+        .returning({ id: groupsTable.id })
+      await CARDINAL.models.groups.reloadCache()
+      testSession = {
+        authenticated: true,
+        user: { id: fixtures.userId },
+        groups: [writers!.id],
+        permissions: []
+      }
+
+      const res = await tickPage(page, 0, 'one')
+      assert.equal(res.statusCode, 200)
+
+      const after = await storedRow(page.id)
+      assert.equal(after.content, CONTENT.replace('- [ ] one', '- [x] one'))
+      assert.equal(after.render!.split('checked=""').length - 1, 2)
+      assert.equal(
+        after.render!.replace(/ checked=""/g, ''),
+        stored.render!.replace(/ checked=""/g, '')
+      )
+      assert.ok(!after.render!.includes('requires the write:scripts permission'))
+    })
+
+    test('a tick racing another save of the page answers 409 and does not overwrite that save', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        { path: 'todo/race', title: 'Race', editor: 'markdown', content: CONTENT, render: RENDER },
+        actor
+      )
+      const concurrent = CONTENT.replace('- [ ] three', '- [x] three')
+      const concurrentAt = new Date(page.updatedAt.getTime() + 1000)
+      const original = pagesModel.updatePage.bind(pagesModel)
+      const updatePage = mock.method(
+        pagesModel,
+        'updatePage',
+        async (...args: Parameters<typeof original>) => {
+          // -> Another tick of the same page, landing after this request read the page and before
+          //    it writes: both passed the `expectedUpdatedAt` check against the same row.
+          await fixtures.db
+            .update(pagesTable)
+            .set({ content: concurrent, updatedAt: concurrentAt })
+            .where(eq(pagesTable.id, page.id))
+          return original(...args)
+        }
+      )
+      try {
+        const res = await tickPage(page, 0, 'one')
+        assert.equal(res.statusCode, 409)
+        assert.equal(res.json().updatedAt, concurrentAt.toISOString())
+      } finally {
+        updatePage.mock.restore()
+      }
+      assert.equal((await storedRow(page.id)).content, concurrent)
+
+      const second = await tickPage(page, 0, 'one')
+      assert.equal(second.statusCode, 409, 'the same stale view is refused on retry too')
     })
 
     after(async () => {

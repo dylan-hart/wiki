@@ -13,7 +13,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'List the unchecked task items across a site',
         description:
-          'Every unchecked `- [ ]` item on every page the caller may read, grouped by page and ordered by path. A password-protected page the caller has not unlocked contributes nothing, and neither does a page they may not read. Each item carries the `index` the tick route (`PUT /sites/:siteId/pages/:pageId/tasks/:index`) takes, and each page its `updatedAt` for that route’s `expectedUpdatedAt`.\n\nPaginated by page (`offset`/`limit`; `totalHits` and `totalItems` ignore both) and filterable by tag and folder.',
+          'Every unchecked `- [ ]` item on every page the caller may read, grouped by page and ordered by path. A password-protected page the caller has not unlocked contributes nothing, and neither does a page they may not read. Each item carries the `index` the tick route (`PUT /sites/:siteId/pages/:pageId/tasks/:index`) takes, and each page its `updatedAt` for that route’s `expectedUpdatedAt`. An item’s `text` is its markdown source only for a caller who may read that page’s source; anyone else gets the text a reader of the page sees.\n\nPaginated by page (`offset`/`limit`; `totalHits` and `totalItems` ignore both) and filterable by tag and folder.',
         tags: ['Pages'],
         params: { $ref: 'SiteIdParams#' },
         querystring: {

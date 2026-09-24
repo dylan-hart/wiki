@@ -317,6 +317,33 @@ export interface PageActor {
   forcedPagePermissions?: string[]
 }
 
+export interface UpdatePageOptions {
+  /**
+   * Overrides what `patch.render` is post-processed against, instead of deriving it from `actor`.
+   * `approveSubmission` (`models/approvals.ts`) is the reason this exists: `actor` there is the
+   * reviewer finalizing someone else's edit suggestion, and the HTML being written is the
+   * submitter's -- resolving `write:scripts`/`write:styles` from `actor` would let a reviewer's own
+   * grants launder a submitter's `<script>`/`<style>` past a permission the submitter never held.
+   */
+  renderPermissions?: RenderPermissions
+  /**
+   * `patch.render` is the page's STORED render with one edit already made to it by the caller (the
+   * tick route flipping a checkbox), so it is written as it is: not post-processed again, and
+   * `toc`/`searchContent`/`links` left alone. Post-processing it would re-sanitize markup already
+   * sanitized for whoever last saved it against THIS actor's `write:scripts`/`write:styles`, and
+   * swap another author's embed for the "requires the permission" callout the moment somebody
+   * without those grants ticks a box. The caller answers for `patch.render` holding nothing the
+   * stored render did not.
+   */
+  storedRenderPatch?: boolean
+  /**
+   * Write only if the row's `updatedAt` still reads this, to the millisecond a client ever sees,
+   * and otherwise refuse with `pageChangedSinceLoad` (409) having written nothing. The comparison is
+   * part of the `UPDATE` itself, so two saves made from the same view cannot both pass it.
+   */
+  expectedUpdatedAt?: Date
+}
+
 /**
  * For the lifecycle log line and nothing else. A recovery (`pageHistory.recoverDeletedPage`) really
  * does insert a brand new page row, so it goes through `createPage()` like every other create — but
@@ -1021,19 +1048,15 @@ class Pages {
   }
 
   /**
-   * @param renderPermissions Overrides what `patch.render` is post-processed against, instead of
-   *   deriving it from `actor`. `approveSubmission` (`models/approvals.ts`) is the reason this
-   *   exists: `actor` there is the reviewer finalizing someone else's edit suggestion, and the HTML
-   *   being written is the submitter's -- resolving `write:scripts`/`write:styles` from `actor`
-   *   would let a reviewer's own grants launder a submitter's `<script>`/`<style>` past a permission
-   *   the submitter never held. Every other caller leaves this unset.
+   * @param options See `UpdatePageOptions`; an ordinary save passes none of them.
+   * @throws CustomError `pageChangedSinceLoad` (409) when `options.expectedUpdatedAt` is stale
    */
   async updatePage(
     siteId: string,
     id: string,
     patch: Partial<PageInput>,
     actor: PageActor,
-    renderPermissions?: RenderPermissions
+    { renderPermissions, storedRenderPatch = false, expectedUpdatedAt }: UpdatePageOptions = {}
   ): Promise<Page | null> {
     const results = await CARDINAL.db
       .select()
@@ -1172,7 +1195,9 @@ class Pages {
     // -> A render only means anything next to the content it came from, so the two move together --
     //    the real one when this save carried one, a blank placeholder when it didn't, so nothing
     //    here goes on matching text or outbound links the new content no longer has.
-    if (hasRenderInput || needsRerenderQueue) {
+    if (hasRenderInput && storedRenderPatch) {
+      values.render = patch.render
+    } else if (hasRenderInput || needsRerenderQueue) {
       const { render, toc, text, links } = await CARDINAL.models.rendering.postProcess(
         siteId,
         patch.render ?? '',
@@ -1208,9 +1233,23 @@ class Pages {
     const rawRows = await CARDINAL.db
       .update(pagesTable)
       .set(values)
-      .where(eq(pagesTable.id, id))
+      .where(
+        and(
+          eq(pagesTable.id, id),
+          ...(expectedUpdatedAt
+            ? [sql`date_trunc('milliseconds', ${pagesTable.updatedAt}) = ${expectedUpdatedAt}`]
+            : [])
+        )
+      )
       .returning()
-    const rawUpdated = rawRows[0]!
+    const rawUpdated = rawRows[0]
+    if (!rawUpdated) {
+      throw new CustomError(
+        'pageChangedSinceLoad',
+        'This page was changed since you loaded it.',
+        409
+      )
+    }
 
     const updated = (await this.getPage({ siteId, id })) as Page
 

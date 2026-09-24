@@ -1,8 +1,15 @@
-import MarkdownIt from 'markdown-it'
+import MarkdownIt, { type Token } from 'markdown-it'
 
 export interface TaskItem {
   index: number
+  /** The item's markdown source after the marker. */
   text: string
+  /**
+   * What a reader of the rendered page sees of the item: its text, code spans and image alt text,
+   * without inline HTML (comments, tags and their attributes) or link targets. For a caller who may
+   * read the page but not its source (`helpers/pageAccess.ts#mayReadSourceAs`).
+   */
+  visibleText: string
   checked: boolean
   line: number
 }
@@ -14,6 +21,25 @@ const MARKER_ON_LINE = /^((?:\s*(?:>|[-+*]|\d+[.)]))*\s*)\[[ xX]\](?=\s)/
 
 function normalize(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
+}
+
+function inlineText(tokens: Token[]): string {
+  return tokens
+    .map((token) => {
+      switch (token.type) {
+        case 'text':
+        case 'code_inline':
+          return token.content
+        case 'image':
+          return inlineText(token.children ?? [])
+        case 'softbreak':
+        case 'hardbreak':
+          return ' '
+        default:
+          return ''
+      }
+    })
+    .join('')
 }
 
 /**
@@ -41,6 +67,7 @@ export function parseTaskItems(markdown: string): TaskItem[] {
     items.push({
       index: items.length,
       text: token.content.slice(4),
+      visibleText: normalize(inlineText(token.children ?? []).replace(MARKER, '')),
       checked: marker[1] !== ' ',
       line: token.map[0]
     })

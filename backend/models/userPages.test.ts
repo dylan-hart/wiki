@@ -12,6 +12,7 @@ import {
 } from '../db/schema.ts'
 import type { PageInput } from './pages.ts'
 import type { GroupRule } from './groups.ts'
+import type { UserPageKind } from './userPages.ts'
 
 describe('userPages (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -107,19 +108,23 @@ describe('userPages (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   const ids = (entries: { pageId: string }[]) => entries.map((entry) => entry.pageId)
 
+  // -> A session's view: the user's own group membership, with no credential narrowing it
+  const listAsUser = async (args: { siteId: string; userId: string; kind: UserPageKind }) =>
+    userPagesModel.list({ ...args, actor: await groupsModel.actorForUserId(args.userId) })
+
   test('touchRecent lists most recently visited first and a revisit moves the page back to the top', async () => {
     const [a, b, c] = pageIds as [string, string, string]
     for (const pageId of [a, b, c]) {
       await userPagesModel.touchRecent({ siteId: fixtures.siteId, userId: readerId, pageId })
     }
     assert.deepEqual(
-      ids(await userPagesModel.list({ siteId: fixtures.siteId, userId: readerId, kind: 'recent' })),
+      ids(await listAsUser({ siteId: fixtures.siteId, userId: readerId, kind: 'recent' })),
       [c, b, a]
     )
 
     await userPagesModel.touchRecent({ siteId: fixtures.siteId, userId: readerId, pageId: a })
     assert.deepEqual(
-      ids(await userPagesModel.list({ siteId: fixtures.siteId, userId: readerId, kind: 'recent' })),
+      ids(await listAsUser({ siteId: fixtures.siteId, userId: readerId, kind: 'recent' })),
       [a, c, b],
       'a revisit updates the existing row rather than adding a second one'
     )
@@ -136,7 +141,7 @@ describe('userPages (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
     }
     assert.deepEqual(
-      ids(await userPagesModel.list({ siteId: fixtures.siteId, userId: readerId, kind: 'recent' })),
+      ids(await listAsUser({ siteId: fixtures.siteId, userId: readerId, kind: 'recent' })),
       [d, c, b]
     )
   })
@@ -164,17 +169,15 @@ describe('userPages (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
     }
     assert.deepEqual(
-      ids(await userPagesModel.list({ siteId: fixtures.siteId, userId: readerId, kind: 'recent' })),
+      ids(await listAsUser({ siteId: fixtures.siteId, userId: readerId, kind: 'recent' })),
       [c]
     )
     assert.deepEqual(
-      ids(
-        await userPagesModel.list({ siteId: fixtures.siteId, userId: readerId, kind: 'favorite' })
-      ),
+      ids(await listAsUser({ siteId: fixtures.siteId, userId: readerId, kind: 'favorite' })),
       [a]
     )
     assert.deepEqual(
-      ids(await userPagesModel.list({ siteId: fixtures.siteId, userId: readerId, kind: 'pinned' })),
+      ids(await listAsUser({ siteId: fixtures.siteId, userId: readerId, kind: 'pinned' })),
       [a]
     )
   })
@@ -215,7 +218,7 @@ describe('userPages (DB-backed)', { skip: !hasTestDatabase() }, () => {
         kind: 'pinned'
       })
     }
-    const pins = await userPagesModel.list({
+    const pins = await listAsUser({
       siteId: fixtures.siteId,
       userId: readerId,
       kind: 'pinned'
@@ -251,7 +254,7 @@ describe('userPages (DB-backed)', { skip: !hasTestDatabase() }, () => {
       false
     )
     assert.deepEqual(
-      ids(await userPagesModel.list({ siteId: fixtures.siteId, userId: readerId, kind: 'pinned' })),
+      ids(await listAsUser({ siteId: fixtures.siteId, userId: readerId, kind: 'pinned' })),
       [a]
     )
   })
@@ -272,15 +275,15 @@ describe('userPages (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     assert.deepEqual(
-      ids(await userPagesModel.list({ siteId: fixtures.siteId, userId: readerId, kind: 'recent' })),
+      ids(await listAsUser({ siteId: fixtures.siteId, userId: readerId, kind: 'recent' })),
       [a]
     )
     assert.deepEqual(
-      ids(await userPagesModel.list({ siteId: otherSiteId, userId: readerId, kind: 'recent' })),
+      ids(await listAsUser({ siteId: otherSiteId, userId: readerId, kind: 'recent' })),
       [otherSitePageId]
     )
     assert.deepEqual(
-      await userPagesModel.list({ siteId: fixtures.siteId, userId: readerId, kind: 'favorite' }),
+      await listAsUser({ siteId: fixtures.siteId, userId: readerId, kind: 'favorite' }),
       []
     )
   })
@@ -307,11 +310,11 @@ describe('userPages (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     assert.deepEqual(
-      ids(await userPagesModel.list({ siteId: fixtures.siteId, userId: readerId, kind: 'recent' })),
+      ids(await listAsUser({ siteId: fixtures.siteId, userId: readerId, kind: 'recent' })),
       [b]
     )
     assert.deepEqual(
-      ids(await userPagesModel.list({ siteId: otherSiteId, userId: readerId, kind: 'recent' })),
+      ids(await listAsUser({ siteId: otherSiteId, userId: readerId, kind: 'recent' })),
       [otherSitePageId]
     )
   })
@@ -342,7 +345,7 @@ describe('userPages (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ])
 
     for (const kind of ['recent', 'favorite', 'pinned'] as const) {
-      const listed = await userPagesModel.list({ siteId: fixtures.siteId, userId: readerId, kind })
+      const listed = await listAsUser({ siteId: fixtures.siteId, userId: readerId, kind })
       assert.deepEqual(ids(listed), [b], `${kind} must not surface a page the user cannot read`)
     }
   })
@@ -357,8 +360,47 @@ describe('userPages (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
     await setRules([])
     assert.deepEqual(
-      await userPagesModel.list({ siteId: fixtures.siteId, userId: readerId, kind: 'favorite' }),
+      await listAsUser({ siteId: fixtures.siteId, userId: readerId, kind: 'favorite' }),
       []
+    )
+  })
+
+  test('list is filtered as the asking actor, so an API key’s narrowings hold', async () => {
+    const [a, b] = pageIds as [string, string]
+    for (const pageId of [a, b]) {
+      await userPagesModel.add({
+        siteId: fixtures.siteId,
+        userId: readerId,
+        pageId,
+        kind: 'favorite'
+      })
+    }
+    const member = await groupsModel.actorForUserId(readerId)
+    const favoritesAs = async (actor: typeof member) =>
+      ids(
+        await userPagesModel.list({
+          siteId: fixtures.siteId,
+          userId: readerId,
+          kind: 'favorite',
+          actor
+        })
+      ).sort()
+
+    assert.deepEqual(await favoritesAs(member), [a, b].sort())
+    assert.deepEqual(
+      await favoritesAs({ ...member, scope: ['read:comments'] }),
+      [],
+      'a key scoped away from read:pages lists nothing'
+    )
+    assert.deepEqual(
+      await favoritesAs({ ...member, allowedClassifications: [] }),
+      [],
+      'a key allowed no classification lists nothing'
+    )
+    assert.deepEqual(
+      await favoritesAs({ ...member, siteId: otherSiteId }),
+      [],
+      'a key pinned to another site lists nothing here'
     )
   })
 

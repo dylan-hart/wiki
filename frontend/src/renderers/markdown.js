@@ -147,6 +147,11 @@ export function gatedContentPlaceholder(permission) {
  * Parses into a `<template>` rather than the live preview DOM: a template's content is inert, so
  * scanning it for a gated tag never risks running the very thing being asked whether it may run.
  *
+ * Without `write:scripts`, inline event handlers and `javascript:`/`vbscript:`/`data:` URLs go too
+ * (`data:` survives only as an `<img src>`, the one place the save keeps it), and so do the SVG
+ * animation elements the save never keeps, which can set a link's `href` to a script URL after this
+ * scan. The preview is `v-html`: whatever survives here runs as the author, on this origin.
+ *
  * @param {{ scripts: boolean, styles: boolean }} permissions
  */
 export function sanitizeForPreview(html, permissions) {
@@ -167,12 +172,55 @@ export function sanitizeForPreview(html, permissions) {
 
   if (!permissions?.scripts) {
     replaceGated('iframe, script', 'write:scripts')
+    stripScriptAttributes(holder.content)
   }
   if (!permissions?.styles) {
     replaceGated('style', 'write:styles')
   }
 
   return holder.innerHTML
+}
+
+const URL_ATTRIBUTES = new Set([
+  'action',
+  'background',
+  'cite',
+  'data',
+  'formaction',
+  'href',
+  'poster',
+  'src',
+  'xlink:href'
+])
+
+const SVG_ANIMATION_TAGS = 'animate, animateMotion, animateTransform, set'
+
+function isScriptUrl(element, attribute, value) {
+  // -> A browser ignores whitespace and control characters inside a scheme (`java\tscript:`)
+  // oxlint-disable-next-line no-control-regex -- matching control characters is the point
+  const url = value.replace(/[\u0000-\u0020]/g, '').toLowerCase()
+  if (url.startsWith('javascript:') || url.startsWith('vbscript:')) {
+    return true
+  }
+  return url.startsWith('data:') && !(element.localName === 'img' && attribute === 'src')
+}
+
+function stripScriptAttributes(root) {
+  for (const el of root.querySelectorAll(SVG_ANIMATION_TAGS)) {
+    el.remove()
+  }
+  for (const el of root.querySelectorAll('*')) {
+    // -> `getAttributeNames()` is a copy, so removing one as we go skips none of the others
+    for (const name of el.getAttributeNames()) {
+      const attribute = name.toLowerCase()
+      if (
+        attribute.startsWith('on') ||
+        (URL_ATTRIBUTES.has(attribute) && isScriptUrl(el, attribute, el.getAttribute(name)))
+      ) {
+        el.removeAttribute(name)
+      }
+    }
+  }
 }
 
 const FENCE_ATTRIBUTE =
