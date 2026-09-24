@@ -330,6 +330,103 @@ describe('block-whiteboard', () => {
       expect(changes).toHaveLength(0)
     })
 
+    it("draws only with a pen's tip, not its barrel button or eraser end", async () => {
+      const el = await mountBoard(BOARD, { editor: true })
+      const changes = nextChange(el)
+      const reached = vi.fn()
+      el.parentElement.addEventListener('pointerdown', reached)
+
+      for (const button of [2, 5]) {
+        await drawStroke(
+          el,
+          [
+            [1, 1],
+            [9, 9]
+          ],
+          { pointerType: 'pen', button }
+        )
+      }
+      expect(changes).toHaveLength(0)
+      expect(reached).toHaveBeenCalledTimes(2)
+
+      await drawStroke(
+        el,
+        [
+          [1, 1],
+          [9, 9]
+        ],
+        { pointerType: 'pen', button: 0 }
+      )
+      expect(changes).toHaveLength(1)
+    })
+
+    it('turns touch-action off as soon as a read-only editor becomes editable', async () => {
+      const el = await mountBoard(BOARD, { editor: true, editable: false })
+      const root = el.parentElement
+      expect(canvasOf(el).classList.contains('is-drawing')).toBe(false)
+
+      root.setAttribute('contenteditable', 'true')
+      await Promise.resolve()
+      await el.updateComplete
+      expect(canvasOf(el).classList.contains('is-drawing')).toBe(true)
+
+      root.setAttribute('contenteditable', 'false')
+      await Promise.resolve()
+      await el.updateComplete
+      expect(canvasOf(el).classList.contains('is-drawing')).toBe(false)
+    })
+
+    it("does not read a collaborator's caret label in the fence as part of the body", async () => {
+      const el = await mountBoard(BOARD, { editor: true })
+      const changes = nextChange(el)
+      const code = document.createElement('code')
+      code.textContent = BOARD
+      const caret = document.createElement('span')
+      caret.setAttribute('contenteditable', 'false')
+      caret.className = 'ProseMirror-widget'
+      caret.innerHTML =
+        '<span class="collaboration-carets__caret"><div class="collaboration-carets__label">Alice</div></span>'
+      code.prepend(caret)
+      el.querySelector('pre').replaceChildren(code)
+      await Promise.resolve()
+      await el.updateComplete
+
+      expect(errorOf(el)).toBeNull()
+      expect(pathsOf(el)).toHaveLength(1)
+
+      await drawStroke(el, [
+        [100, 100],
+        [150, 150]
+      ])
+
+      expect(changes[0].detail.body).toBe(
+        BOARD + '\n{"c":"#1f2937","z":6,"p":[100,100,50,150,150,50]}'
+      )
+    })
+
+    it('reads every fence in the body, so two first strokes that each added one both draw', async () => {
+      const el = await mountBlock('block-whiteboard', {
+        html: `<pre>${EMPTY}\n{"c":"#3366cc","z":4,"p":[1,1,50]}</pre><pre>${EMPTY}\n{"c":"#3366cc","z":4,"p":[2,2,50]}</pre>`,
+        parent: editorRoot()
+      })
+      const changes = nextChange(el)
+
+      expect(errorOf(el)).toBeNull()
+      expect(pathsOf(el)).toHaveLength(2)
+
+      await drawStroke(el, [
+        [100, 100],
+        [150, 150]
+      ])
+
+      expect(
+        changes[0].detail.body.startsWith(
+          [...el.querySelectorAll('pre')].map((pre) => pre.textContent).join('\n')
+        )
+      ).toBe(true)
+      expect(pathsOf(el)).toHaveLength(3)
+    })
+
     it('records pen pressure, and a fixed mid pressure for mouse and touch', async () => {
       const el = await mountBoard(EMPTY, { editor: true })
       const changes = nextChange(el)

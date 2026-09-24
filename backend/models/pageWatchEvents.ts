@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import { pageWatchEvents as pageWatchEventsTable, pages as pagesTable } from '../db/schema.ts'
+import type { AccessActor } from './groups.ts'
 import type { WatchNotifyMode } from './pageWatching.ts'
 
 /**
@@ -171,10 +172,18 @@ class PageWatchEvents {
    * this handles gracefully, and the badge it feeds (`unreadCount`) is a separate query with its own cap
    * (`UNREAD_COUNT_SCAN_LIMIT`).
    *
-   * `read:pages` is re-checked at read time (`filterReadable`), not just when the event was
+   * `read:pages` is re-checked at read time (`filterReadableAs`), not just when the event was
    * recorded; a row that fails is dropped from the list rather than surfaced as a refusal.
+   *
+   * @param actor Who is asking, as the request presents itself (`groups.actorForRequest`), so an
+   *   API key's scope, classification allow-set and site pin narrow the inbox as they narrow a page
+   *   read.
    */
-  async listForUser(userId: string, siteId: string): Promise<InboxNotification[]> {
+  async listForUser(
+    userId: string,
+    siteId: string,
+    actor: AccessActor
+  ): Promise<InboxNotification[]> {
     const rows = await CARDINAL.db
       .select({
         id: pageWatchEventsTable.id,
@@ -198,7 +207,7 @@ class PageWatchEvents {
       )
       .orderBy(desc(pageWatchEventsTable.createdAt))
       .limit(INBOX_LIST_LIMIT)
-    return (await this.filterReadable(userId, rows)) as InboxNotification[]
+    return (await this.filterReadableAs(actor, rows)) as InboxNotification[]
   }
 
   /**
@@ -215,6 +224,19 @@ class PageWatchEvents {
     if (events.length < 1) {
       return []
     }
+    return this.filterReadableAs(await CARDINAL.models.groups.actorForUserId(userId), events)
+  }
+
+  /**
+   * `filterReadable` for a caller that has a request of its own to judge by: the inbox and its
+   * badge, where an API key's narrowings must hold rather than its owner's full membership.
+   */
+  async filterReadableAs<
+    T extends { pageId: string | null; pagePath: string; pageLocale: string; siteId: string }
+  >(actor: AccessActor, events: T[]): Promise<T[]> {
+    if (events.length < 1) {
+      return []
+    }
     const pageIds = [...new Set(events.map((event) => event.pageId).filter((id) => id !== null))]
     const liveRows = await CARDINAL.db
       .select({
@@ -228,7 +250,6 @@ class PageWatchEvents {
       .where(inArray(pagesTable.id, pageIds))
     const livePages = new Map(liveRows.map((row) => [row.id, row]))
 
-    const actor = await CARDINAL.models.groups.actorForUserId(userId)
     return events.filter((event) => {
       const live = event.pageId === null ? undefined : livePages.get(event.pageId)
       return CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
@@ -272,11 +293,12 @@ class PageWatchEvents {
   }
 
   /**
-   * Runs the scan through `filterReadable`, like `listForUser`, so the badge never counts a row the
-   * inbox drops. Saturates at `UNREAD_COUNT_SCAN_LIMIT`; when the newest rows are unreadable, readable
-   * ones beyond the cap go uncounted, which under-counts rather than over-counts.
+   * Runs the scan through `filterReadableAs`, as the same actor `listForUser` is given, so the badge
+   * never counts a row the inbox drops. Saturates at `UNREAD_COUNT_SCAN_LIMIT`; when the newest rows
+   * are unreadable, readable ones beyond the cap go uncounted, which under-counts rather than
+   * over-counts.
    */
-  async unreadCount(userId: string, siteId: string): Promise<number> {
+  async unreadCount(userId: string, siteId: string, actor: AccessActor): Promise<number> {
     const rows = await CARDINAL.db
       .select({
         pageId: pageWatchEventsTable.pageId,
@@ -294,7 +316,7 @@ class PageWatchEvents {
       )
       .orderBy(desc(pageWatchEventsTable.createdAt))
       .limit(UNREAD_COUNT_SCAN_LIMIT)
-    return (await this.filterReadable(userId, rows)).length
+    return (await this.filterReadableAs(actor, rows)).length
   }
 }
 

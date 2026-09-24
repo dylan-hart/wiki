@@ -10,7 +10,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'The item’s ordinal on its page: the `:index` PUT /sites/:siteId/pages/:pageId/tasks/:index takes.'
       },
-      text: { type: 'string' },
+      text: {
+        type: 'string',
+        description:
+          'The item’s markdown source after the marker, for a caller who may read the page’s source (`read:source`, `write:pages` or `manage:pages`); otherwise only its visible text, without inline HTML or link targets.'
+      },
       line: { type: 'integer', description: 'Zero-based source line of the item.' }
     }
   })

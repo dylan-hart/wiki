@@ -60,6 +60,82 @@ describe('pageTemplates.sanitizeContent (pure)', () => {
     assert.ok(out.includes('a=1&b=2'))
   })
 
+  const assertInert = (out: string, input: string) => {
+    for (const needle of ['<script', '<style', 'onerror', 'javascript:', '&#115;']) {
+      assert.ok(
+        !out.includes(needle),
+        `${JSON.stringify(input)} came out as ${JSON.stringify(out)}`
+      )
+    }
+  }
+
+  test('a refused raw-text element is dropped with its contents, not unescaped back into markup', async () => {
+    for (const input of [
+      '<title><img src=x onerror=alert(1)></title>',
+      '<title><script>alert(1)</script></title>',
+      '<title><style>body{display:none}</style></title>',
+      '<xmp><script>alert(1)</script></xmp>',
+      '<iframe><script>alert(1)</script></iframe>',
+      '<noembed><img src=x onerror=alert(1)></noembed>',
+      '<noframes><img src=x onerror=alert(1)></noframes>',
+      '<noscript><img src=x onerror=alert(1)></noscript>',
+      '<textarea><img src=x onerror=alert(1)></textarea>',
+      '<plaintext><img src=x onerror=alert(1)>',
+      '<title><xmp><img src=x onerror=alert(1)></xmp></title>',
+      '<noframes><title></noframes><img src=x onerror=alert(1)></title>'
+    ]) {
+      assertInert(await clean(input), input)
+    }
+    assert.equal(await clean('before <title><b>t</b></title>after'), 'before after')
+  })
+
+  test('a tag reassembled from the text either side of a removed one is sanitized too', async () => {
+    for (const input of [
+      '<<x>img src=x onerror=alert(1)>',
+      '<<!---->img src=x onerror=alert(1)>',
+      '<<<x>x>img src=x onerror=alert(1)>',
+      '<<x>script>alert(1)<<x>/script>',
+      '<<y>style>body{display:none}<<y>/style>'
+    ]) {
+      assertInert(await clean(input), input)
+    }
+    assert.equal(await clean('<<x>img src=x onerror=alert(1)>'), '<img src="x" />')
+  })
+
+  test('an entity-encoded scheme is decoded before the scheme check, not stored as a live URL', async () => {
+    for (const input of [
+      '<a href="java&#115;cript:alert(1)">x</a>',
+      '<a href="javascript&colon;alert(1)">x</a>',
+      '<a href="&#106;avascript:alert(1)">x</a>',
+      '<a href="java&#xE000;#115;cript:alert(1)">x</a>',
+      '<a href="data&colon;text/html,&lt;script&gt;alert(1)&lt;/script&gt;">x</a>'
+    ]) {
+      const out = await clean(input)
+      assert.equal(out, '<a>x</a>', `${JSON.stringify(input)} came out as ${JSON.stringify(out)}`)
+    }
+  })
+
+  test('a source that never settles falls back to entity-escaped output', async () => {
+    const input = `${'<'.repeat(12)}${'x>'.repeat(11)}img src=x onerror=alert(1)>`
+    const out = await clean(input)
+    assert.ok(!out.includes('<'), out)
+    assert.ok(out.startsWith('&lt;'), out)
+  })
+
+  test('legitimate markdown and entity-bearing attributes survive the repeated passes intact', async () => {
+    const source =
+      'a <3 b\n\nx > y\n\n> quote\n\n`a < b`\n\n' +
+      '<a href="https://example.com/?a=1&amp;b=2">x</a> <a href="?a=1&b=2&copy=3">y</a>\n\n' +
+      '<img src="data:image/png;base64,AAAA" alt="&quot;quoted&quot;" />\n'
+    assert.equal(await clean(source), source)
+  })
+
+  test('a permitted iframe or script keeps its contents', async () => {
+    const ALL = { scripts: true, styles: true }
+    const source = '<iframe src="https://example.com"></iframe>\n\n<script>if (a < b) {}</script>'
+    assert.equal(await clean(source, 'markdown', ALL), source)
+  })
+
   test('the code editor is sanitized as HTML', async () => {
     const out = await clean('<p onclick="x()">a &amp; b</p><script>1</script>', 'code')
     assert.equal(out, '<p>a &amp; b</p>')

@@ -2952,6 +2952,147 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.equal(unchanged.get('page:bravo')!.sortOrder, rows.get('page:bravo')!.sortOrder)
     })
 
+    const orderOf = async (folderPath: string) =>
+      [...(await childRows(folderPath)).values()]
+        .sort((a, b) => a.sortOrder! - b.sortOrder! || a.type.localeCompare(b.type))
+        .map((row) => `${row.type}:${row.fileName}@${row.sortOrder}`)
+
+    const hiding =
+      (hidden: string[]) =>
+      <T extends { type: string; fileName: string }>(entries: T[]) =>
+        entries.filter((entry) => !hidden.includes(`${entry.type}:${entry.fileName}`))
+
+    test('a sibling the caller cannot see neither blocks the reorder nor moves', async () => {
+      await seed('ro-hidden', ['alpha', 'bravo', 'charlie', 'delta'])
+      const rows = await childRows('ro-hidden')
+      const id = (name: string) => rows.get(`page:${name}`)!.id
+      await treeModel.reorderChildren({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentPath: 'ro-hidden',
+        ids: ['alpha', 'bravo', 'charlie', 'delta'].map(id)
+      })
+
+      const result = await treeModel.reorderChildren({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentPath: 'ro-hidden',
+        ids: [id('delta'), id('charlie'), id('alpha')],
+        filterVisible: hiding(['page:bravo'])
+      })
+
+      assert.equal(result.count, 3, 'the count is what the caller listed, not the hidden rows too')
+      assert.deepEqual(await orderOf('ro-hidden'), [
+        'page:delta@0',
+        'page:bravo@1',
+        'page:charlie@2',
+        'page:alpha@3'
+      ])
+    })
+
+    test('ids naming a hidden sibling, or leaving out a visible one, is 409 and writes nothing', async () => {
+      await seed('ro-hidden-stale', ['alpha', 'bravo', 'charlie'])
+      const rows = await childRows('ro-hidden-stale')
+      const id = (name: string) => rows.get(`page:${name}`)!.id
+      await treeModel.reorderChildren({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentPath: 'ro-hidden-stale',
+        ids: ['alpha', 'bravo', 'charlie'].map(id)
+      })
+      const before = await orderOf('ro-hidden-stale')
+
+      for (const ids of [
+        ['charlie', 'bravo', 'alpha'],
+        ['charlie'],
+        ['charlie', 'alpha', randomUUID()]
+      ]) {
+        await assert.rejects(
+          treeModel.reorderChildren({
+            siteId: fixtures.siteId,
+            locale: 'en',
+            parentPath: 'ro-hidden-stale',
+            ids: ids.map((name) => rows.get(`page:${name}`)?.id ?? name),
+            filterVisible: hiding(['page:bravo'])
+          }),
+          { statusCode: 409 }
+        )
+      }
+      assert.deepEqual(await orderOf('ro-hidden-stale'), before)
+    })
+
+    test('the hidden row of a page and folder pair moves with the visible one', async () => {
+      await seed('ro-hidden-twin', ['alpha', 'guide', 'guide/inside', 'zulu'])
+      const rows = await childRows('ro-hidden-twin')
+      const id = (key: string) => rows.get(key)!.id
+      await treeModel.reorderChildren({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentPath: 'ro-hidden-twin',
+        ids: ['page:alpha', 'page:guide', 'folder:guide', 'page:zulu'].map(id)
+      })
+
+      await treeModel.reorderChildren({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentPath: 'ro-hidden-twin',
+        ids: ['page:zulu', 'page:guide', 'page:alpha'].map(id),
+        filterVisible: hiding(['folder:guide'])
+      })
+
+      assert.deepEqual(await orderOf('ro-hidden-twin'), [
+        'page:zulu@0',
+        'folder:guide@1',
+        'page:guide@1',
+        'page:alpha@2'
+      ])
+    })
+
+    test('publicOnly hides what getTree hides from an anonymous reader: a draft keeps its place', async () => {
+      for (const [name, publishState] of [
+        ['alpha', 'published'],
+        ['bravo', 'draft'],
+        ['charlie', 'published']
+      ] as const) {
+        await pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({ path: `ro-public/${name}`, title: name, locale: 'en', publishState }),
+          actor
+        )
+      }
+      const rows = await childRows('ro-public')
+      const id = (name: string) => rows.get(`page:${name}`)!.id
+      await treeModel.reorderChildren({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentPath: 'ro-public',
+        ids: ['alpha', 'bravo', 'charlie'].map(id)
+      })
+
+      await assert.rejects(
+        treeModel.reorderChildren({
+          siteId: fixtures.siteId,
+          locale: 'en',
+          parentPath: 'ro-public',
+          ids: ['charlie', 'bravo', 'alpha'].map(id),
+          publicOnly: true
+        }),
+        { statusCode: 409 }
+      )
+      await treeModel.reorderChildren({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentPath: 'ro-public',
+        ids: ['charlie', 'alpha'].map(id),
+        publicOnly: true
+      })
+      assert.deepEqual(await orderOf('ro-public'), [
+        'page:charlie@0',
+        'page:bravo@1',
+        'page:alpha@2'
+      ])
+    })
+
     test('an unknown folder is a 404', async () => {
       await assert.rejects(
         treeModel.reorderChildren({

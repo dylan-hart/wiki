@@ -278,8 +278,8 @@ describe('generate()', () => {
     assert.equal(await generate(PROMPT, { siteId: 's1' }, { apiKey: API_KEY }), null)
   })
 
-  test('returns null when the request itself fails, logging the error but not the key or text', async () => {
-    const failure = new TypeError('fetch failed')
+  test('returns null when the request itself fails, logging the error name but not the key or text', async () => {
+    const failure = new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } })
     mock.method(globalThis, 'fetch', async () => {
       throw failure
     })
@@ -287,7 +287,9 @@ describe('generate()', () => {
     const warning = logged.lines.find((line) => line.level === 'warn')
     assert.ok(warning)
     assert.equal(warning.args[0], 'ext')
-    assert.equal((warning.args[2] as any).error, failure)
+    assert.equal((warning.args[2] as any).errorName, 'TypeError')
+    assert.equal((warning.args[2] as any).errorCode, 'ECONNREFUSED')
+    assert.equal((warning.args[2] as any).error, undefined)
     const serialized = JSON.stringify(logged.lines)
     assert.ok(!serialized.includes(API_KEY))
     assert.ok(!serialized.includes(PROMPT))
@@ -304,7 +306,7 @@ describe('generate()', () => {
     assert.equal(await generate(PROMPT, { siteId: 's1' }, { apiKey: API_KEY }), null)
     const warning = logged.lines.find((line) => line.level === 'warn')
     assert.ok(warning)
-    assert.equal((warning.args[2] as any).error.name, 'TimeoutError')
+    assert.equal((warning.args[2] as any).errorName, 'TimeoutError')
   })
 
   test('returns null when the caller aborts, without a warning', async () => {

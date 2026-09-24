@@ -14,6 +14,9 @@ import {
   comments as commentsTable,
   groups as groupsTable,
   navigation as navigationTable,
+  noteImages as noteImagesTable,
+  noteSections as noteSectionsTable,
+  notes as notesTable,
   pageHistory as pageHistoryTable,
   pages as pagesTable,
   settings as settingsTable,
@@ -181,7 +184,35 @@ describe('replicationImportModel.importSnapshot (DB-backed)', { skip: !hasTestDa
       'settings.json': json([{ key: 'testReplicationSetting', value: { flag: true } }])
     })
 
+    // -> A personal note on the instance being replaced. Snapshots carry none, so it must go.
+    const [section] = await fixtures.db
+      .insert(noteSectionsTable)
+      .values({ siteId: fixtures.siteId, userId: fixtures.userId, title: 'Mine' })
+      .returning({ id: noteSectionsTable.id })
+    const [note] = await fixtures.db
+      .insert(notesTable)
+      .values({
+        siteId: fixtures.siteId,
+        userId: fixtures.userId,
+        sectionId: section!.id,
+        content: 'private'
+      })
+      .returning({ id: notesTable.id })
+    await fixtures.db.insert(noteImagesTable).values({
+      siteId: fixtures.siteId,
+      userId: fixtures.userId,
+      noteId: note!.id,
+      fileName: 'a.png',
+      mimeType: 'image/png',
+      fileSize: 1,
+      data: Buffer.from([0])
+    })
+
     const report = await importSnapshot(filePath)
+
+    assert.equal(await fixtures.db.$count(noteSectionsTable), 0)
+    assert.equal(await fixtures.db.$count(notesTable), 0)
+    assert.equal(await fixtures.db.$count(noteImagesTable), 0)
 
     assert.deepEqual(report, {
       sites: 1,

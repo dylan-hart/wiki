@@ -6,6 +6,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 let app: FastifyInstance
 let session: any
+let apiKey: any
 let listForUserMock: ReturnType<typeof mock.fn>
 let unreadCountMock: ReturnType<typeof mock.fn>
 let markReadMock: ReturnType<typeof mock.fn>
@@ -15,6 +16,7 @@ const SITE_ID = '11111111-1111-1111-1111-111111111111'
 const USER_ID = '33333333-3333-3333-3333-333333333333'
 const NOTIFICATION_ID = '44444444-4444-4444-4444-444444444444'
 const ACTOR_ID = '55555555-5555-5555-5555-555555555555'
+const SESSION_ACTOR = { groupIds: [], permissions: [], scope: null }
 
 const ROW = {
   id: NOTIFICATION_ID,
@@ -31,7 +33,11 @@ const ROW = {
 before(async () => {
   app = await buildTestApp({
     routes: notificationRoutes,
-    session: () => session,
+    // -> `apiKey` rides along as a per-request side effect, the way a bearer token would arrive
+    session: (req: any) => {
+      req.apiKey = apiKey
+      return session
+    },
     wiki: {
       models: {
         pageWatchEvents: {
@@ -43,7 +49,12 @@ before(async () => {
           getById: (...args: any[]) => getByIdMock(...args)
         },
         groups: {
-          groupIdsForRequest: () => []
+          groupIdsForRequest: () => [],
+          actorForRequest: (req: any) => ({
+            groupIds: [],
+            permissions: [],
+            scope: req.apiKey?.scope ?? null
+          })
         }
       }
     }
@@ -54,6 +65,7 @@ after(() => closeTestApp(app))
 
 beforeEach(() => {
   session = { authenticated: true, user: { id: USER_ID }, permissions: [] }
+  apiKey = null
   listForUserMock = mock.fn(async () => [ROW])
   unreadCountMock = mock.fn(async () => 1)
   markReadMock = mock.fn(async () => true)
@@ -64,7 +76,7 @@ test("GET lists the caller's unread notifications with a resolved actor name", a
   const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/notifications` })
 
   assert.equal(res.statusCode, 200)
-  assert.deepEqual(listForUserMock.mock.calls[0]?.arguments, [USER_ID, SITE_ID])
+  assert.deepEqual(listForUserMock.mock.calls[0]?.arguments, [USER_ID, SITE_ID, SESSION_ACTOR])
   assert.deepEqual(res.json(), [
     { ...ROW, createdAt: ROW.createdAt.toISOString(), actorName: 'Jane Actor' }
   ])
@@ -104,8 +116,28 @@ test("GET unread-count answers the caller's count", async () => {
   })
 
   assert.equal(res.statusCode, 200)
-  assert.deepEqual(unreadCountMock.mock.calls[0]?.arguments, [USER_ID, SITE_ID])
+  assert.deepEqual(unreadCountMock.mock.calls[0]?.arguments, [USER_ID, SITE_ID, SESSION_ACTOR])
   assert.deepEqual(res.json(), { count: 1 })
+})
+
+test('GET and unread-count filter as the request’s own actor, so an API key’s scope reaches the model', async () => {
+  session = undefined
+  apiKey = { id: 'key-1', userId: USER_ID, permissions: [], groupIds: [], scope: ['read:comments'] }
+
+  const list = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/notifications` })
+  const count = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/notifications/unread-count`
+  })
+
+  assert.equal(list.statusCode, 200)
+  assert.equal(count.statusCode, 200)
+  for (const call of [listForUserMock.mock.calls[0], unreadCountMock.mock.calls[0]]) {
+    const [userId, siteId, actor] = call!.arguments as [string, string, any]
+    assert.equal(userId, USER_ID)
+    assert.equal(siteId, SITE_ID)
+    assert.deepEqual(actor.scope, ['read:comments'])
+  }
 })
 
 test('PATCH marks a notification read', async () => {

@@ -1074,7 +1074,7 @@ function revokePasskey(pkey) {
       notify({
         type: 'negative',
         message: t('admin.users.passkeysRevokeFailed'),
-        caption: apiErrorMessage(err)
+        caption: localizeError(apiErrorMessage(err), t)
       })
     }
     loading.hide()

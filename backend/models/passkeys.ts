@@ -8,6 +8,9 @@ import { isoBase64URL } from '@simplewebauthn/server/helpers'
 import { eq, sql } from 'drizzle-orm'
 import { users as usersTable } from '../db/schema.ts'
 import { isValidUuid } from '../helpers/common.ts'
+import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
+import { passkeysAllowed } from './security.ts'
+import { authLockKey, countAlternativeLogins } from './userCredentials.ts'
 import type {
   AuthenticationResponseJSON,
   AuthenticatorTransportFuture,
@@ -184,7 +187,6 @@ class Passkeys {
     if (!pending) {
       throw new Error('ERR_PASSKEY_NOT_SETUP')
     }
-    const store = (user.passkeys ?? {}) as PasskeyStore
     const trimmedName = (name ?? '').trim()
     if (trimmedName.length < 1 || trimmedName.length > 255) {
       throw new Error('ERR_PK_NAME_MISSING_OR_INVALID')
@@ -212,11 +214,6 @@ class Passkeys {
     }
 
     const { credential } = verification.registrationInfo
-    const authenticators = store.authenticators ?? []
-    if (authenticators.some((pk) => pk.id === credential.id)) {
-      throw new Error('ERR_PK_ALREADY_REGISTERED')
-    }
-
     const passkey: StoredPasskey = {
       id: credential.id,
       name: trimmedName,
@@ -228,7 +225,15 @@ class Passkeys {
       rpId: pending.rpId
     }
 
-    await this.saveStore(user.id, { authenticators: [...authenticators, passkey] })
+    // -> Appended to the list as it is now, not as it was before the verification above: a passkey
+    //    removed in the meantime must stay removed. See `saveStore()`.
+    await withAdvisoryLock(authLockKey(user.id), async () => {
+      const authenticators = (await this.getStore(user.id)).authenticators ?? []
+      if (authenticators.some((pk) => pk.id === credential.id)) {
+        throw new Error('ERR_PK_ALREADY_REGISTERED')
+      }
+      await this.saveStore(user.id, { authenticators: [...authenticators, passkey] })
+    })
 
     CARDINAL.models.flags.authDebug(
       `User ${user.id} <${user.email}> registered passkey "${trimmedName}" on ${pending.rpId}`
@@ -245,17 +250,35 @@ class Passkeys {
   /**
    * The credential itself lives on the user's device and has to be removed there too, which is what
    * the client says when this succeeds.
+   *
+   * Refused when the passkey is the account's last way in — the guard `unlinkStrategy()` applies to
+   * a provider, under the same per-user lock (`userCredentials.ts#authLockKey`), and re-read inside
+   * it: removing the last passkey while the last provider is disconnected would otherwise have each
+   * see the other as the way in that remains. While passkeys are switched off instance-wide none of
+   * them is a way in, so removing one takes nothing away.
+   *
+   * @returns false when the user has no passkey with this id
+   * @throws `ERR_PASSKEY_LAST_LOGIN_METHOD`
    */
   async remove(userId: string, passkeyId: string): Promise<boolean> {
-    const store = await this.getStore(userId)
-    const authenticators = store.authenticators ?? []
-    const remaining = authenticators.filter((pk) => pk.id !== passkeyId)
-    if (remaining.length === authenticators.length) {
-      return false
-    }
-    await this.saveStore(userId, { ...store, authenticators: remaining })
-    CARDINAL.models.flags.authDebug(`User ${userId} removed a passkey`)
-    return true
+    return withAdvisoryLock(authLockKey(userId), async () => {
+      const user = await CARDINAL.models.users.getById(userId)
+      const store = (user?.passkeys ?? {}) as PasskeyStore
+      const authenticators = store.authenticators ?? []
+      const remaining = authenticators.filter((pk) => pk.id !== passkeyId)
+      if (!user || remaining.length === authenticators.length) {
+        return false
+      }
+      if (
+        passkeysAllowed() &&
+        countAlternativeLogins({ ...user, passkeys: { authenticators: remaining } }) < 1
+      ) {
+        throw new Error('ERR_PASSKEY_LAST_LOGIN_METHOD')
+      }
+      await this.saveStore(userId, { ...store, authenticators: remaining })
+      CARDINAL.models.flags.authDebug(`User ${userId} removed a passkey`)
+      return true
+    })
   }
 
   /**
@@ -379,12 +402,27 @@ class Passkeys {
       throw new Error('ERR_LOGIN_FAILED')
     }
 
-    // -> The counter has to be stored for the replay check to mean anything next time
-    await this.saveStore(user.id, {
-      authenticators: (store.authenticators ?? []).map((pk) =>
-        pk.id === passkey.id ? { ...pk, counter: verification.authenticationInfo.newCounter } : pk
-      )
+    // -> The counter has to be stored for the replay check to mean anything next time. Written
+    //    into the list as it is now, under the lock: a passkey removed while this assertion was
+    //    being verified stays removed, and no longer signs anyone in.
+    const stillRegistered = await withAdvisoryLock(authLockKey(user.id), async () => {
+      const authenticators = (await this.getStore(user.id)).authenticators ?? []
+      if (!authenticators.some((pk) => pk.id === passkey.id)) {
+        return false
+      }
+      await this.saveStore(user.id, {
+        authenticators: authenticators.map((pk) =>
+          pk.id === passkey.id ? { ...pk, counter: verification.authenticationInfo.newCounter } : pk
+        )
+      })
+      return true
     })
+    if (!stillRegistered) {
+      CARDINAL.models.flags.authDebug(
+        `Passkey login rejected: credential ${passkey.id} was removed from user ${userId} during the login`
+      )
+      throw new Error('ERR_LOGIN_FAILED')
+    }
 
     CARDINAL.models.flags.authDebug(
       `User ${user.id} <${user.email}> authenticated with passkey "${passkey.name}"`
@@ -429,6 +467,12 @@ class Passkeys {
     return (user?.passkeys ?? {}) as PasskeyStore
   }
 
+  /**
+   * Overwrites the whole list, so every caller reads it and writes it back inside the per-user
+   * lock (`userCredentials.ts#authLockKey`) — `remove()`, `finalizeRegistration()` and
+   * `verifyLogin()`'s counter update alike. A write from a list read outside it would put back a
+   * passkey removed in between.
+   */
   async saveStore(userId: string, store: PasskeyStore): Promise<void> {
     await CARDINAL.db
       .update(usersTable)

@@ -1,6 +1,6 @@
 import { LitElement, css, html, svg } from 'lit'
 
-import { readFencedSource } from '../shared/body.js'
+import { documentText } from '../shared/body.js'
 import { I18n } from '../shared/i18n.js'
 import { renderError } from '../shared/render.js'
 import { errorBox } from '../shared/styles.js'
@@ -19,7 +19,22 @@ import {
 } from './board.js'
 import { MAX_BLOCK_BYTES, MAX_POINTS, MAX_STROKES } from './limits.js'
 
+const EDITOR_ROOT = '.ProseMirror'
 const EDITABLE_ANCESTOR = '.ProseMirror[contenteditable="true"]'
+
+/**
+ * Every fence in the body, joined, where the shared `readFencedSource` reads only the first. Two
+ * collaborators drawing the first stroke on a board that had no fence yet each insert one, and
+ * Yjs keeps both: reading only the first would drop the other's stroke. A repeated header line is
+ * not a stroke, so `parseBoard` skips it. The server and the editor read a board the same way.
+ */
+export function readWhiteboardSource(el) {
+  const fences = el.querySelectorAll('pre')
+  if (fences.length === 0) {
+    return documentText(el).trim()
+  }
+  return Array.from(fences, documentText).join('\n').trim()
+}
 
 function capturePointer(el, pointerId) {
   try {
@@ -112,6 +127,7 @@ export class BlockWhiteboardElement extends LitElement {
     this._pen = false
     this._paths = new WeakMap()
     this._observer = null
+    this._editableObserver = null
     this._darkMode = new DarkMode(this)
     this._i18n = new I18n(this)
   }
@@ -121,12 +137,26 @@ export class BlockWhiteboardElement extends LitElement {
     this._readBody()
     this._observer = new MutationObserver(() => this._readBody())
     this._observer.observe(this, { childList: true, subtree: true, characterData: true })
+    // -> `drawingMode` is read at render time, and an editor that goes from read-only to editable
+    //    (the collab editor, once its session is refused) changes nothing inside this element. The
+    //    canvas has to re-render to pick up `is-drawing` before the first touch lands, since
+    //    `touch-action` is settled when a gesture starts.
+    const root = this.closest(EDITOR_ROOT)
+    if (root) {
+      this._editableObserver = new MutationObserver(() => this.requestUpdate())
+      this._editableObserver.observe(root, {
+        attributes: true,
+        attributeFilter: ['contenteditable']
+      })
+    }
   }
 
   disconnectedCallback() {
     super.disconnectedCallback()
     this._observer?.disconnect()
     this._observer = null
+    this._editableObserver?.disconnect()
+    this._editableObserver = null
     this._activePointer = null
     this._live = null
   }
@@ -136,7 +166,7 @@ export class BlockWhiteboardElement extends LitElement {
   }
 
   _readBody() {
-    const { source } = readFencedSource(this)
+    const source = readWhiteboardSource(this)
     if (source === this._source) {
       return
     }
@@ -212,7 +242,9 @@ export class BlockWhiteboardElement extends LitElement {
     if (!this.drawingMode) {
       return
     }
-    if (event.pointerType === 'mouse' && event.button !== 0) {
+    // -> The primary button only, for every pointer type: a pen's barrel button (2) and eraser
+    //    end (5) are not the tip, the same rule `isPenContact` applies in the editor.
+    if (event.button !== 0) {
       return
     }
     event.stopPropagation()

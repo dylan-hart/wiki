@@ -278,9 +278,18 @@ describe('Security#checkPasskeyLockout', () => {
   let security: typeof import('./security.ts').security
   let execute: ReturnType<typeof mock.fn>
 
+  /** `count` accounts holding a passkey and nothing else, beside one that still has a way in. */
   function install(stored: Record<string, any>, count: number) {
-    execute = mock.fn(async () => ({ rows: [{ count }] }))
-    ;(globalThis as any).CARDINAL = { config: { security: stored }, db: { execute } }
+    const rows = [
+      ...Array.from({ length: count }, () => ({ auth: { local: { restrictLogin: true } } })),
+      { auth: { local: { restrictLogin: true }, github: { id: 'gh-1' } } }
+    ]
+    execute = mock.fn(async () => ({ rows }))
+    ;(globalThis as any).CARDINAL = {
+      config: { security: stored },
+      db: { execute },
+      auth: { strategies: { local: {}, github: {} } }
+    }
   }
 
   beforeEach(async () => {
@@ -314,6 +323,12 @@ describe('Security#checkPasskeyLockout', () => {
 
   test('treats an unset stored value as on', async () => {
     install({}, 1)
+    assert.match((await security.checkPasskeyLockout({ allowPasskeys: false })) ?? '', /1 account/)
+  })
+
+  test('a provider whose strategy is disabled is no way in', async () => {
+    install({ allowPasskeys: true }, 0)
+    ;(globalThis as any).CARDINAL.auth.strategies = { local: {} }
     assert.match((await security.checkPasskeyLockout({ allowPasskeys: false })) ?? '', /1 account/)
   })
 })

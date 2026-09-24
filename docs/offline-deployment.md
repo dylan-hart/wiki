@@ -105,18 +105,22 @@ the locale's row in the `locales` table, upserted through exactly the same path
 source feeding the one that already exists:
 
 1. **Vendored** (`backend/locales/*.json`, Localazy-managed, baked into the image) — every language
-   `locales/metadata.js` declares.
+   `locales/metadata.js` declares. The bundled `en.json` is the source of truth for English and
+   rewrites the `en` row on every boot, whatever else wrote it.
 2. **Network** (`update-locales` task, daily, off by `offline` or `update.locales: false`) — pulls the
-   same vendored set fresher than the image, when online. Merged per key onto the stored strings, as
-   a sideload is: a downloaded value replaces only the key it names, so sideloaded and Cardinal-only
-   keys the download lacks survive. A sideloaded value for a key the download also carries is
-   overwritten, and the next boot does not re-apply it (the row is now newer than the file); run
-   `POST /_api/locales/sideload` to restore it.
+   same vendored set fresher than the image, when online, except `en`: upstream's `en.json` is
+   Wiki.js's own English, never Cardinal.js's. Merged per key onto the stored strings, as a sideload
+   is: a downloaded value replaces only the key it names, so sideloaded and Cardinal-only keys the
+   download lacks survive.
 3. **Sideloaded** (`<dataPath>/locales/*.json`, this feature) — anything an operator drops into the
    data volume, online or offline. Unlike the other two, a sideloaded code needs no entry in
    `locales/metadata.js` — this is how a locale nobody has vendored yet gets **added**, not just
    updated. Files must sit directly in `<dataPath>/locales/` (not nested in a subdirectory) — the scan
    is not recursive.
+
+A sideloaded value always wins: whenever a vendored file or a download writes a locale, that code's
+sideload file is laid back on top of the result, so an operator's override for a key the other
+sources also carry survives both.
 
 Why the data volume and not moving locale storage into the DB outright: the strings already live in
 the DB (the `locales` table is the runtime source of truth every reader's `/_api/locales/:code/strings`

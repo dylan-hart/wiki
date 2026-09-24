@@ -256,13 +256,15 @@ export function formatPubsubMetrics(stats: readonly NotifierStats[]): string {
 
   lines.push(
     `# HELP ${PUBSUB_DROPPED} NOTIFYs discarded without being sent: reason "error" when pg_notify ` +
-      'failed, "no_client" when the notifier had no open listener connection.',
+      'failed, "no_client" when the notifier had no open listener connection, "no_peer" when no ' +
+      'other instance was known to be running to receive it.',
     `# TYPE ${PUBSUB_DROPPED} counter`
   )
   for (const s of stats) {
     for (const [reason, value] of [
       ['error', s.droppedError],
-      ['no_client', s.droppedNoClient]
+      ['no_client', s.droppedNoClient],
+      ['no_peer', s.droppedNoPeer]
     ] as const) {
       lines.push(`${PUBSUB_DROPPED}${labelSet({ channel: s.channel, reason })} ${value}`)
     }

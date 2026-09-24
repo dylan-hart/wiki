@@ -338,6 +338,7 @@ describe('createNotifier instrumentation', () => {
       sent: 0,
       droppedError: 0,
       droppedNoClient: 0,
+      droppedNoPeer: 0,
       queueDepth: 0,
       durationBuckets: NOTIFY_DURATION_BUCKETS.map(() => 0),
       durationSum: 0,
@@ -413,6 +414,21 @@ describe('createNotifier instrumentation', () => {
     assert.equal(stats.droppedNoClient, 2)
     assert.equal(stats.sent, 0)
     assert.equal(stats.durationCount, 0)
+    assert.equal(stats.queueDepth, 0)
+  })
+
+  test('discard() counts what a caller withheld under its reason, never as sent or queued', async () => {
+    const notifier = createNotifier(() => null, 'instrumentation: discard')
+
+    notifier.discard('no_client')
+    notifier.discard('no_client', 3)
+    notifier.discard('no_peer', 2)
+    await notifier.drained()
+
+    const stats = statsFor('instrumentation: discard')
+    assert.equal(stats.droppedNoClient, 4)
+    assert.equal(stats.droppedNoPeer, 2)
+    assert.equal(stats.sent, 0)
     assert.equal(stats.queueDepth, 0)
   })
 

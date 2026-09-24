@@ -1,4 +1,9 @@
-export function buildTextPdf(pages: string[], options: { encrypted?: boolean } = {}): Buffer {
+/** `mediaBox` is every page's width and height in points, US Letter unless given. */
+export function buildTextPdf(
+  pages: string[],
+  options: { encrypted?: boolean; mediaBox?: [number, number] } = {}
+): Buffer {
+  const [boxWidth, boxHeight] = options.mediaBox ?? [612, 792]
   const objects: string[] = []
   const pageCount = pages.length
   const kids = pages.map((_, i) => `${3 + i * 2} 0 R`).join(' ')
@@ -10,9 +15,9 @@ export function buildTextPdf(pages: string[], options: { encrypted?: boolean } =
     const pageId = 3 + i * 2
     const contentId = pageId + 1
     const escaped = text.replaceAll('\\', '\\\\').replaceAll('(', '\\(').replaceAll(')', '\\)')
-    const stream = `BT /F1 18 Tf 72 720 Td (${escaped}) Tj ET`
+    const stream = `BT /F1 18 Tf 72 ${boxHeight - 72} Td (${escaped}) Tj ET`
     objects[pageId] =
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontId} 0 R >> >> >>`
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${boxWidth} ${boxHeight}] /Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontId} 0 R >> >> >>`
     objects[contentId] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`
   })
   objects[fontId] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'

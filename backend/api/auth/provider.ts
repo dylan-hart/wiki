@@ -5,6 +5,7 @@ import {
   isFollowableRedirectTarget
 } from '../../helpers/redirectTarget.ts'
 import { randomToken } from '../../helpers/randomToken.ts'
+import { escapeHtml } from '../../models/mail.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type { ProviderProfile } from '../../models/authentication.ts'
 
@@ -37,16 +38,32 @@ export function loginErrorUrl(redirect: string, code: string): string {
 
 const LINK_RESULT_PARAMS = ['authLink', 'authLinkError', 'strategyId']
 
+/**
+ * `redirect` was validated on the way in, but `URL` normalizes what it parses — `/.//evil.example`,
+ * `/a/..//evil.example` and `/%2e//evil.example` all come out with a `//evil.example` pathname —
+ * so the result is validated again and `/` carries the outcome instead of anything that fails. An
+ * absolute target keeps its own origin through the round trip and is otherwise re-checked the same
+ * way; whether one may be followed at all was the caller's decision.
+ */
 export function linkResultUrl(redirect: string, params: Record<string, string>): string {
   const absolute = /^[a-z][a-z0-9+.-]*:/i.test(redirect)
-  const url = new URL(redirect || '/', 'http://link.invalid')
-  for (const key of LINK_RESULT_PARAMS) {
-    url.searchParams.delete(key)
+  const build = (target: string, keepAbsolute: boolean): string | null => {
+    let url: URL
+    try {
+      url = new URL(target, 'http://link.invalid')
+    } catch {
+      return null
+    }
+    for (const key of LINK_RESULT_PARAMS) {
+      url.searchParams.delete(key)
+    }
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value)
+    }
+    const result = keepAbsolute ? url.toString() : `${url.pathname}${url.search}${url.hash}`
+    return isFollowableRedirectTarget(result, { allowAbsolute: keepAbsolute }) ? result : null
   }
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value)
-  }
-  return absolute ? url.toString() : `${url.pathname}${url.search}${url.hash}`
+  return build(redirect || '/', absolute) ?? build('/', false)!
 }
 
 function errorCode(err: any): string {
@@ -115,6 +132,40 @@ function matchCallbackFlow(
   }
 
   return { flow, redirect }
+}
+
+/**
+ * The session cookie is `SameSite=Lax` (`core/http/session.ts`), and a browser withholds a Lax
+ * cookie from a cross-site POST — which is exactly how an identity provider delivers a SAML
+ * answer, so it always reached a session with no flow on it and failed as `ERR_LOGIN_EXPIRED`.
+ * This page posts the same fields back to the same URL from this origin, which is a same-site POST
+ * and does carry the cookie. Nothing is trusted on the strength of it: `RelayState` still has to
+ * match the flow's `state`, and the assertion its `InResponseTo`, exactly as for a first delivery.
+ * `bounced` keeps a flow that is genuinely gone from going round again.
+ *
+ * Shaped like `node-saml`'s own AuthnRequest form: the `onload` submit is inline script, which an
+ * enforced `script-src 'self'` refuses, so the button stays visible for that case.
+ */
+function sameSiteRepostPage(action: string, fields: Record<string, string | undefined>): string {
+  const inputs = Object.entries({ ...fields, bounced: '1' })
+    .filter(([, value]) => typeof value === 'string')
+    .map(
+      ([name, value]) =>
+        `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value!)}" />`
+    )
+    .join('')
+  return [
+    '<!DOCTYPE html>',
+    '<html>',
+    '<head><meta charset="utf-8"><meta name="referrer" content="no-referrer"></head>',
+    '<body onload="document.forms[0].submit()">',
+    `<form method="post" action="${escapeHtml(action)}">`,
+    inputs,
+    '<input type="submit" value="Continue" />',
+    '</form>',
+    '</body>',
+    '</html>'
+  ].join('\n')
 }
 
 type CallbackExtra = {
@@ -470,7 +521,7 @@ async function routes(app: FastifyInstance) {
 
   app.post<{
     Params: { strategyId: string }
-    Body: { SAMLResponse?: string; RelayState?: string }
+    Body: { SAMLResponse?: string; RelayState?: string; bounced?: string }
   }>(
     '/auth/:strategyId/callback',
     {
@@ -481,7 +532,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Finish a login at an identity provider (form POST)',
         description:
-          'Where a provider that answers with a browser form POST — SAML — sends the browser back, `SAMLResponse` and `RelayState` included. Otherwise identical to the GET callback: the same flow-matching, expiry and `state` checks apply, with `state` read from `RelayState` here instead of a query parameter.',
+          "Where a provider that answers with a browser form POST — SAML — sends the browser back, `SAMLResponse` and `RelayState` included. Otherwise identical to the GET callback: the same flow-matching, expiry and `state` checks apply, with `state` read from `RelayState` here instead of a query parameter.\n\nThe session cookie is `SameSite=Lax`, so a browser leaves it off the provider's cross-site POST. A delivery that arrives with no login in progress on its session is therefore answered once with a self-submitting form that posts the same fields back here from this origin, adding `bounced=1`; that second, same-site POST carries the cookie and is checked as above.",
         tags: ['Authentication'],
         params: {
           type: 'object',
@@ -494,15 +545,35 @@ async function routes(app: FastifyInstance) {
           type: 'object',
           properties: {
             SAMLResponse: { type: 'string' },
-            RelayState: { type: 'string' }
+            RelayState: { type: 'string' },
+            bounced: {
+              type: 'string',
+              description: 'Set by the re-post form; never by the identity provider.'
+            }
           }
         },
         response: {
+          200: {
+            description: 'A self-submitting form re-posting the answer from this origin',
+            type: 'string'
+          },
           302: { description: 'Redirect back into the wiki', type: 'null' }
         }
       }
     },
     async (req, reply) => {
+      if (!req.session.authFlow && req.body?.SAMLResponse && req.body.bounced !== '1') {
+        return reply
+          .header('Cache-Control', 'no-store')
+          .type('text/html; charset=utf-8')
+          .send(
+            sameSiteRepostPage(req.url, {
+              SAMLResponse: req.body.SAMLResponse,
+              RelayState: req.body.RelayState
+            })
+          )
+      }
+
       let flow: NonNullable<FastifyRequest['session']['authFlow']>
       let redirect: string
       try {

@@ -112,6 +112,20 @@ async function errorType(response: Response): Promise<string | undefined> {
   }
 }
 
+/**
+ * What a failure is logged as, never the error itself: a key fetch cannot put in a header (one
+ * with a control character inside it) comes back as a TypeError whose message quotes the whole
+ * header value, key included.
+ */
+function failureFields(err: unknown): { errorName: string; errorCode?: string } {
+  const error = err as { name?: unknown; code?: unknown; cause?: { code?: unknown } } | null
+  const code = error?.code ?? error?.cause?.code
+  return {
+    errorName: typeof error?.name === 'string' ? error.name : typeof err,
+    ...(typeof code === 'string' ? { errorCode: code } : {})
+  }
+}
+
 function requestSignal(signal: AbortSignal | undefined): AbortSignal {
   const timeout = AbortSignal.timeout(TIMEOUT_MS)
   return signal ? AbortSignal.any([signal, timeout]) : timeout
@@ -142,7 +156,7 @@ export default async function generate(
         body: JSON.stringify(body),
         signal: requestSignal(context?.signal)
       })
-    } catch (err: any) {
+    } catch (err) {
       if (context?.signal?.aborted) {
         CARDINAL.logger.debug('ext', 'the Anthropic request was cancelled', {
           module: MODULE_KEY,
@@ -155,7 +169,7 @@ export default async function generate(
         module: MODULE_KEY,
         site: context?.siteId,
         model,
-        error: err
+        ...failureFields(err)
       })
       return null
     }
@@ -188,11 +202,11 @@ export default async function generate(
       return null
     }
     return result.text
-  } catch (err: any) {
+  } catch (err) {
     CARDINAL.logger.warn('ext', 'generating text with Anthropic failed', {
       module: MODULE_KEY,
       site: context?.siteId,
-      error: err
+      ...failureFields(err)
     })
     return null
   }

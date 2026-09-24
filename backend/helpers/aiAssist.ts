@@ -1,6 +1,7 @@
 import type { FastifyRequest } from 'fastify'
 import type { ai as aiModel } from '../models/ai.ts'
 import type { RateLimitPeek, RateLimitPolicy, RateLimitVerdict } from '../models/rateLimits.ts'
+import { generatePathHash, normalizePagePath } from './common.ts'
 import { actorFrom, loadReadablePage, mayOnPage } from './pageAccess.ts'
 
 export const AI_ASSIST_DEFAULT_DAILY_CAP = 50
@@ -87,10 +88,20 @@ async function mayWriteTarget(
     const page = await loadReadablePage(req, siteId, target.pageId)
     return page !== null && mayOnPage(req, 'write:pages', siteId, page)
   }
-  return mayOnPage(req, 'write:pages', siteId, {
-    path: target.path ?? '',
-    locale: target.locale ?? null
+  // -> Named by path alone, an existing page is still judged as that page: a bare `{ path, locale }`
+  //    carries no tags or classification, so no TAG/TAGALL/CLASSIFICATION DENY rule could match it.
+  //    Only a path with nothing there yet (a page being created) is judged on the path itself.
+  const path = normalizePagePath(target.path)
+  const page = await CARDINAL.models.pages.getPage({
+    siteId,
+    hash: generatePathHash(path),
+    locale: target.locale,
+    withPassword: false
   })
+  if (page) {
+    return mayOnPage(req, 'write:pages', siteId, page) && mayOnPage(req, 'read:pages', siteId, page)
+  }
+  return mayOnPage(req, 'write:pages', siteId, { path, locale: target.locale ?? null })
 }
 
 export async function evaluateAiAssist(

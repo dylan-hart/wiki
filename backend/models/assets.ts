@@ -477,22 +477,31 @@ class Assets {
     dimensions: { width?: number; height?: number }
     authorId: string
   }): Promise<Asset> {
-    await CARDINAL.db
-      .update(assetsTable)
-      .set({
-        fileExt,
-        kind,
-        mimeType,
-        fileSize: data.length,
-        data,
-        preview,
-        searchContent: null,
-        ts: null,
-        meta: sql`(coalesce(${assetsTable.meta}, '{}'::jsonb) - 'width' - 'height') || ${JSON.stringify(dimensions)}::jsonb`,
-        authorId,
-        updatedAt: sql`now()`
-      })
-      .where(eq(assetsTable.id, id))
+    await CARDINAL.db.transaction(async (tx) => {
+      await tx
+        .update(assetsTable)
+        .set({
+          fileExt,
+          kind,
+          mimeType,
+          fileSize: data.length,
+          data,
+          preview,
+          searchContent: null,
+          ts: null,
+          meta: sql`(coalesce(${assetsTable.meta}, '{}'::jsonb) - 'width' - 'height') || ${JSON.stringify(dimensions)}::jsonb`,
+          authorId,
+          updatedAt: sql`now()`
+        })
+        .where(eq(assetsTable.id, id))
+      // -> The chunks were embedded from the text cleared above. Only an extraction that finds
+      //    text queues a fresh embedding, so a replacement that yields none, or fails, or is not
+      //    extractable at all, would otherwise leave the old file's chunks standing for good.
+      //    The table exists only with the capability (`core/pgvectorBootstrap.ts`).
+      if (CARDINAL.capabilities?.semanticSearch) {
+        await tx.execute(sql`DELETE FROM "assetEmbeddingChunks" WHERE "assetId" = ${id}`)
+      }
+    })
     // -> The tree carries its own copy of these, and it is what a folder listing reads
     await CARDINAL.db
       .update(treeTable)

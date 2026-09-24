@@ -9,6 +9,46 @@ function millisecondsOf(date: Date): string {
   return date.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
 }
 
+function escapeAttribute(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;')
+}
+
+/**
+ * The stored render with the `index`th checkbox's `checked` set, and every other byte as it was:
+ * only that one `<input>` tag is rewritten, from its own parsed attributes, so nothing else in the
+ * render is re-parsed or re-serialized on the way back into the row. `null` when the render does not
+ * hold `expected` checkboxes, i.e. no longer matches its source.
+ */
+function withCheckbox(
+  render: string,
+  index: number,
+  checked: boolean,
+  expected: number
+): string | null {
+  const $ = cheerio.load(
+    render,
+    { xml: { xmlMode: false, withStartIndices: true, withEndIndices: true } },
+    false
+  )
+  const boxes = $(CHECKBOX)
+  if (boxes.length !== expected) {
+    return null
+  }
+  const box = boxes.get(index)
+  if (!box || box.startIndex === null || box.endIndex === null) {
+    return null
+  }
+  const attribs = { ...box.attribs }
+  delete attribs.checked
+  if (checked) {
+    attribs.checked = ''
+  }
+  const tag = `<input${Object.entries(attribs)
+    .map(([name, value]) => ` ${name}="${escapeAttribute(value)}"`)
+    .join('')}>`
+  return render.slice(0, box.startIndex) + tag + render.slice(box.endIndex + 1)
+}
+
 async function routes(app: FastifyInstance) {
   app.put<{
     Params: { siteId: string; pageId: string; index: number }
@@ -20,7 +60,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Tick or untick one task item of a page',
         description:
-          'Flips the marker of the `index`th `- [ ]` / `- [x]` item of the page source (document order, code blocks excluded) and the matching checkbox of the stored render, and nothing else. The stored render is patched in place, so no re-render is queued. `text` is the item’s source text after the marker; a different text at that ordinal, or an `expectedUpdatedAt` older than the page, answers 409 with the current `updatedAt`, so the caller can reload and retry.',
+          'Flips the marker of the `index`th `- [ ]` / `- [x]` item of the page source (document order, code blocks excluded) and the matching checkbox of the stored render, and nothing else. The stored render is patched in place, not re-rendered or re-sanitized, so an embed its author was permitted survives a tick by someone who is not, and no re-render is queued. `text` is the item’s source text after the marker; a different text at that ordinal, or an `expectedUpdatedAt` older than the page (a concurrent save landing between this request’s read and its write included), answers 409 with the current `updatedAt`, so the caller can reload and retry.',
         tags: ['Pages'],
         params: {
           type: 'object',
@@ -107,24 +147,42 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      const $ = cheerio.load(page.render, null, false)
-      const boxes = $(CHECKBOX)
-      if (boxes.length !== parseTaskItems(page.content).length) {
+      const render = withCheckbox(
+        page.render ?? '',
+        index,
+        checked,
+        parseTaskItems(page.content).length
+      )
+      if (render === null) {
         return conflict('The rendered page no longer matches its source.')
       }
-      const box = boxes.eq(index)
-      if (checked) {
-        box.attr('checked', '')
-      } else {
-        box.removeAttr('checked')
-      }
 
-      const updated = await CARDINAL.models.pages.updatePage(
-        req.params.siteId,
-        req.params.pageId,
-        { content, render: $.html() },
-        actor
-      )
+      let updated
+      try {
+        updated = await CARDINAL.models.pages.updatePage(
+          req.params.siteId,
+          req.params.pageId,
+          { content, render },
+          actor,
+          // -> The render is the stored one with a checkbox flipped: sanitizing it again against the
+          //    ticker's own write:scripts/write:styles would strip what its author was allowed. And
+          //    the write lands only if the page is still the one `content` was computed from.
+          { storedRenderPatch: true, expectedUpdatedAt: page.updatedAt }
+        )
+      } catch (err: any) {
+        if (err?.name !== 'pageChangedSinceLoad') {
+          throw err
+        }
+        const current = await CARDINAL.models.pages.getPage({
+          siteId: req.params.siteId,
+          id: req.params.pageId
+        })
+        return reply.code(409).send({
+          ok: false,
+          message: err.message,
+          updatedAt: millisecondsOf(current?.updatedAt ?? page.updatedAt)
+        })
+      }
       if (!updated) {
         return reply.notFound('This page does not exist.')
       }

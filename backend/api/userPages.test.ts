@@ -7,6 +7,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 describe('userPages routes', () => {
   let app: FastifyInstance
   let session: any
+  let apiKey: any
   let readable: boolean
   let getPageMock: ReturnType<typeof mock.fn>
   let touchRecentMock: ReturnType<typeof mock.fn>
@@ -19,18 +20,27 @@ describe('userPages routes', () => {
   const USER_ID = '33333333-3333-3333-3333-333333333333'
   const PAGE = { id: PAGE_ID, path: 'some/page', locale: 'en', tags: [] }
   const PAGE_URL = `/sites/${SITE_ID}/pages/${PAGE_ID}`
+  const SESSION_ACTOR = { groupIds: [], permissions: [], scope: null }
 
   before(async () => {
     app = await buildTestApp({
       routes: userPagesRoutes,
-      session: () => session,
+      // -> `apiKey` rides along as a per-request side effect, the way a bearer token would arrive
+      session: (req: any) => {
+        req.apiKey = apiKey
+        return session
+      },
       wiki: {
         models: {
           pages: {
             getPage: (...args: any[]) => getPageMock(...args)
           },
           groups: {
-            actorForRequest: () => ({ groupIds: [], permissions: [] }),
+            actorForRequest: (req: any) => ({
+              groupIds: [],
+              permissions: [],
+              scope: req.apiKey?.scope ?? null
+            }),
             checkAccess: () => readable,
             groupIdsForRequest: () => []
           },
@@ -49,6 +59,7 @@ describe('userPages routes', () => {
 
   beforeEach(() => {
     session = { authenticated: true, user: { id: USER_ID }, permissions: [] }
+    apiKey = null
     readable = true
     getPageMock = mock.fn(async () => PAGE)
     touchRecentMock = mock.fn(async () => {})
@@ -207,10 +218,29 @@ describe('userPages routes', () => {
     assert.deepEqual(
       listMock.mock.calls.map((c) => c.arguments[0]),
       [
-        { siteId: SITE_ID, userId: USER_ID, kind: 'recent' },
-        { siteId: SITE_ID, userId: USER_ID, kind: 'favorite' },
-        { siteId: SITE_ID, userId: USER_ID, kind: 'pinned' }
+        { siteId: SITE_ID, userId: USER_ID, kind: 'recent', actor: SESSION_ACTOR },
+        { siteId: SITE_ID, userId: USER_ID, kind: 'favorite', actor: SESSION_ACTOR },
+        { siteId: SITE_ID, userId: USER_ID, kind: 'pinned', actor: SESSION_ACTOR }
       ]
     )
+  })
+
+  test('GET filters as the request’s own actor, so an API key’s scope reaches the model', async () => {
+    session = undefined
+    apiKey = {
+      id: 'key-1',
+      userId: USER_ID,
+      permissions: [],
+      groupIds: [],
+      scope: ['read:comments']
+    }
+    const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/user-pages` })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(listMock.mock.calls.length, 3)
+    for (const call of listMock.mock.calls) {
+      assert.deepEqual((call.arguments[0] as any).actor.scope, ['read:comments'])
+      assert.equal((call.arguments[0] as any).userId, USER_ID)
+    }
   })
 })

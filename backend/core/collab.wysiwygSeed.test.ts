@@ -106,9 +106,19 @@ describe('claimWysiwygSeed: cross-instance, nobody answers in time', () => {
   })
 })
 
+/**
+ * Already aware of its peer, so the message under test is not also this instance's first sign of
+ * company -- which would resync every open room, and these stub rooms have no document to resync.
+ */
+function instanceWithPeer(id: string): any {
+  const inst = makeInstance(id)
+  inst.peerPresence = { known: true, checkedAt: Date.now() }
+  return inst
+}
+
 describe('receiveRelay: wysiwyg-claim', () => {
   test('replies wysiwyg-claimed only when this instance already holds the claim', () => {
-    const inst = makeInstance('X')
+    const inst = instanceWithPeer('X')
     ;(globalThis as any).CARDINAL.INSTANCE_ID = 'X'
     const relayCalls: any[] = []
     inst.relay = (envelope: any) => relayCalls.push(envelope)
@@ -120,7 +130,7 @@ describe('receiveRelay: wysiwyg-claim', () => {
   })
 
   test('answers with silence when this instance has no claim on the room (or no room at all)', () => {
-    const inst = makeInstance('X')
+    const inst = instanceWithPeer('X')
     ;(globalThis as any).CARDINAL.INSTANCE_ID = 'X'
     const relayCalls: any[] = []
     inst.relay = (envelope: any) => relayCalls.push(envelope)
@@ -135,7 +145,7 @@ describe('receiveRelay: wysiwyg-claim', () => {
 
 describe('receiveRelay: wysiwyg-claimed', () => {
   test('marks the room seeded and resolves a pending local wait', () => {
-    const inst = makeInstance('X')
+    const inst = instanceWithPeer('X')
     inst.rooms.set('page-8', { pageId: 'page-8', wysiwygSeeded: false })
     let resolved = false
     // -> As in `claimWysiwygSeed`: the waiter removes itself, `receiveRelay` only invokes it.

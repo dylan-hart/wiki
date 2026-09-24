@@ -1,11 +1,17 @@
 import { and, asc, eq, like, or, sql } from 'drizzle-orm'
 import { pages as pagesTable } from '../db/schema.ts'
 import { escapeLikePattern } from '../helpers/common.ts'
+import { mayReadSourceAs } from '../helpers/pageAccess.ts'
 import { parseTaskItems } from '../helpers/taskItems.ts'
 import type { AccessActor } from './groups.ts'
 
 export interface RollupTaskItem {
   index: number
+  /**
+   * The item's markdown source for a caller who may read the page's source, and only its visible
+   * text otherwise: the source can carry what the rendered page never shows (an HTML comment, an
+   * attribute), and `read:pages` alone does not open it.
+   */
   text: string
   line: number
 }
@@ -96,9 +102,14 @@ class Tasks {
       if (row.password && !isUnlocked(row)) {
         continue
       }
+      const source = mayReadSourceAs(actor, siteId, row)
       const items = parseTaskItems(row.content ?? '')
         .filter((item) => !item.checked)
-        .map(({ index, text, line }) => ({ index, text, line }))
+        .map(({ index, text, visibleText, line }) => ({
+          index,
+          text: source ? text : visibleText,
+          line
+        }))
       if (items.length === 0) {
         continue
       }

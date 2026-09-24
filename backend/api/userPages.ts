@@ -168,10 +168,13 @@ async function routes(app: FastifyInstance) {
         return reply
       }
       const { siteId } = req.params
+      // -> The request's own actor, so an API key's scope and classification narrowing hold here
+      //    as they do on the page reads the list links to.
+      const actor = CARDINAL.models.groups.actorForRequest(req)
       const [recent, favorites, pinned] = await Promise.all([
-        CARDINAL.models.userPages.list({ siteId, userId, kind: 'recent' }),
-        CARDINAL.models.userPages.list({ siteId, userId, kind: 'favorite' }),
-        CARDINAL.models.userPages.list({ siteId, userId, kind: 'pinned' })
+        CARDINAL.models.userPages.list({ siteId, userId, kind: 'recent', actor }),
+        CARDINAL.models.userPages.list({ siteId, userId, kind: 'favorite', actor }),
+        CARDINAL.models.userPages.list({ siteId, userId, kind: 'pinned', actor })
       ])
       return { recent, favorites, pinned }
     }

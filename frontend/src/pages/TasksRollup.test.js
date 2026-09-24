@@ -188,6 +188,54 @@ describe('TasksRollup.vue', () => {
     expect(wrapper.findAll('button').find((b) => b.text() === 'Load More')).toBeUndefined()
   })
 
+  it('keeps the newest filter’s results when an older request answers after it', async () => {
+    const { wrapper } = await mountRollup()
+    const pending = []
+    API_CLIENT.get.mockImplementation(() => {
+      let resolve
+      const response = new Promise((settle) => {
+        resolve = settle
+      })
+      pending.push(resolve)
+      return { json: () => response }
+    })
+
+    const chips = wrapper.findAll('.tasks-rollup-chips .w-chip')
+    await chips[0].trigger('click')
+    await flushPromises()
+    await chips[1].trigger('click')
+    await flushPromises()
+    expect(pending).toHaveLength(2)
+
+    pending[1](rollup([PAGE_B]))
+    await flushPromises()
+    pending[0](rollup([PAGE_A]))
+    await flushPromises()
+
+    const groups = wrapper.findAll('.tasks-rollup-group')
+    expect(groups.map((group) => group.attributes('data-page-id'))).toEqual(['b2'])
+    expect(wrapper.find('.tasks-rollup-summary').text()).toBe('1 open task(s) on 1 page(s)')
+  })
+
+  it('starts a changed filter from the first page rather than appending to the old list', async () => {
+    const { wrapper } = await mountRollup('/_tasks', rollup([PAGE_A], 2, 3))
+    API_CLIENT.get.mockImplementation(() => ({
+      json: () => Promise.resolve(rollup([PAGE_B], 1, 1))
+    }))
+
+    await wrapper.find('input[aria-label="Folder"]').setValue('safety')
+    const more = wrapper.findAll('button').find((b) => b.text() === 'Load More')
+    await more.trigger('click')
+    await flushPromises()
+
+    expect(tasksCalls()[1][1].searchParams).toMatchObject({ folder: 'safety', offset: 0 })
+    const groups = wrapper.findAll('.tasks-rollup-group')
+    expect(groups.map((group) => group.attributes('data-page-id'))).toEqual(['b2'])
+    // -> The folder field's debounced route update is still pending; unmounted, it fetches nothing
+    //    into the next test
+    wrapper.unmount()
+  })
+
   it('notifies and shows the empty state when the request fails', async () => {
     API_CLIENT.get.mockImplementation((url) => ({
       json: () => (url.endsWith('/tags') ? Promise.resolve([]) : Promise.reject(new Error('boom')))

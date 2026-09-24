@@ -161,6 +161,27 @@ describe('UserEditOverlay admin passkeys panel', () => {
     expect(lastNotification.caption).toBe('This passkey was already removed.')
   })
 
+  it('localizes a refusal the server answers with an error code', async () => {
+    const wrapper = await mountOverlay()
+
+    API_CLIENT.delete.mockReturnValueOnce(
+      Promise.reject({ data: { message: 'ERR_PASSKEY_LAST_LOGIN_METHOD' } })
+    )
+
+    const revokeBtn = wrapper
+      .findAll('button')
+      .find((b) => b.attributes('aria-label') === 'common.actions.delete')
+    await revokeBtn.trigger('click')
+    await openDialogs[openDialogs.length - 1].handlers.ok[0]()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("Jane's Laptop")
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      caption: 'error.ERR_PASSKEY_LAST_LOGIN_METHOD'
+    })
+  })
+
   it('does not render the passkeys panel or its actions when the caller lacks manage:users', async () => {
     const wrapper = await mountOverlay({ canManage: false })
 

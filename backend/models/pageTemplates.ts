@@ -1,3 +1,4 @@
+import * as cheerio from 'cheerio'
 import { and, asc, eq, isNull, or } from 'drizzle-orm'
 import sanitizeHtml from 'sanitize-html'
 import { pageTemplates as pageTemplatesTable } from '../db/schema.ts'
@@ -62,15 +63,80 @@ function normalizeLocale(siteId: string, locale: string | null | undefined): str
   return locale
 }
 
+/**
+ * Elements whose contents the parser reads as raw text. Refused, the contents would come out as a
+ * text node, which `textFilter` below turns back into markup (`<title><img onerror=…></title>` →
+ * `<img onerror=…>`), so they are dropped whole, as `nonTextTags` already drops a refused `<script>`.
+ */
+const RAW_TEXT_TAGS = [
+  'iframe',
+  'noembed',
+  'noframes',
+  'noscript',
+  'plaintext',
+  'textarea',
+  'title',
+  'xmp'
+]
+
+/**
+ * A pass can assemble a new tag out of the text either side of one it removed (`<<b>img …>`), which
+ * only the next pass sees, so `sanitizeSource` repeats until the source stops changing. Each pass
+ * peels one such layer; a source still changing after this many is not one anybody wrote by hand.
+ */
+const MAX_SOURCE_PASSES = 8
+
+/** The value a browser reads out of `raw` as an attribute: parse5, as `models/rendering.ts` uses. */
+function decodeAttribute(raw: string): string {
+  const $ = cheerio.load(`<i title="${raw.replaceAll('"', '&quot;')}"></i>`, null, false)
+  return $('i').attr('title') ?? ''
+}
+
+/**
+ * Masking `&` hides every entity from the parser, attribute values included, so without this
+ * `href="java&#115;cript:…"` is scheme-checked as the harmless-looking masked text and decodes back
+ * into a live `javascript:` URL. A value whose entities decode to anything is handed to the sanitizer
+ * decoded, for its checks to see what a browser will; one without any stays masked, byte for byte.
+ */
+function decodeMaskedAttributes(tagName: string, attribs: sanitizeHtml.Attributes) {
+  const decoded: sanitizeHtml.Attributes = {}
+  for (const [name, value] of Object.entries(attribs)) {
+    const raw = value.replaceAll(MASK, '&')
+    const plain = raw === value ? raw : decodeAttribute(raw)
+    decoded[name] = plain === raw ? value : plain
+  }
+  return { tagName, attribs: decoded }
+}
+
 // -> `&` is masked first so every `&lt;`/`&gt;` sanitize-html emits in text is its own and
 //    `textFilter` can undo it; otherwise markdown's `>` and `<` come back entity-escaped.
-function sanitizeSource(html: string, options: sanitizeHtml.IOptions): string {
+function sanitizeSourcePass(html: string, options: sanitizeHtml.IOptions): string {
   const masked = html.replaceAll('&', MASK)
   const cleaned = sanitizeHtml(masked, {
     ...options,
+    nonTextTags: [...new Set([...(options.nonTextTags ?? []), ...RAW_TEXT_TAGS])],
+    transformTags: { '*': decodeMaskedAttributes },
     textFilter: (text) => text.replaceAll('&lt;', '<').replaceAll('&gt;', '>')
   })
   return cleaned.replaceAll(MASK, '&')
+}
+
+/**
+ * Undoing the sanitizer's own text escaping is what keeps markdown intact, and also what can turn
+ * text back into markup the pass never vetted. So the result must be a fixpoint -- a source the
+ * sanitizer, reading it afresh, has nothing left to remove from -- and one that never settles falls
+ * back to the sanitizer's plain, entity-escaped output.
+ */
+function sanitizeSource(html: string, options: sanitizeHtml.IOptions): string {
+  let current = html
+  for (let pass = 0; pass < MAX_SOURCE_PASSES; pass++) {
+    const next = sanitizeSourcePass(current, options)
+    if (next === current) {
+      return current
+    }
+    current = next
+  }
+  return sanitizeHtml(html, options)
 }
 
 class PageTemplates {

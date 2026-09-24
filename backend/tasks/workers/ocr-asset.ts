@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { assets as assetsTable } from '../../db/schema.ts'
 import { queueAssetJob, storeAssetText } from '../../helpers/assetText.ts'
 import { ocrBytes, ocrKindOf } from '../../helpers/ocr.ts'
@@ -9,8 +9,7 @@ export async function ocrAsset(assetId: string): Promise<void> {
       data: assetsTable.data,
       fileExt: assetsTable.fileExt,
       mimeType: assetsTable.mimeType,
-      searchContent: assetsTable.searchContent,
-      updatedAt: sql<string>`${assetsTable.updatedAt}::text`
+      searchContent: assetsTable.searchContent
     })
     .from(assetsTable)
     .where(eq(assetsTable.id, assetId))
@@ -43,7 +42,7 @@ export async function ocrAsset(assetId: string): Promise<void> {
     return
   }
 
-  const stored = await storeAssetText(CARDINAL.db, assetId, row.updatedAt, result.text)
+  const stored = await storeAssetText(CARDINAL.db, assetId, row.data, result.text)
   if (!stored) {
     CARDINAL.logger.debug('worker', 'asset changed during OCR, result discarded', {
       asset: assetId

@@ -1,5 +1,6 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import {
@@ -187,7 +188,11 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
       notifyOnMoved: false
     })
 
-    const [watched] = await pageWatchingModel.listForUser(fixtures.siteId, watcherId)
+    const [watched] = await pageWatchingModel.listForUser(
+      fixtures.siteId,
+      watcherId,
+      await groupsModel.actorForUserId(watcherId)
+    )
     assert.equal(watched?.pageId, pageId)
     assert.deepEqual(watched?.preference, {
       notifyMode: 'immediate',
@@ -197,6 +202,36 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
     })
 
     await pageWatchingModel.unwatch({ pageId, userId: watcherId })
+  })
+
+  test('listForUser is filtered as the asking actor, so an API key’s narrowings hold', async () => {
+    await pageWatchingModel.watch({ siteId: fixtures.siteId, pageId, userId: watcherId })
+    try {
+      const member = await groupsModel.actorForUserId(watcherId)
+      const watchedAs = async (actor: typeof member) =>
+        (await pageWatchingModel.listForUser(fixtures.siteId, watcherId, actor)).map(
+          (row) => row.pageId
+        )
+
+      assert.deepEqual(await watchedAs(member), [pageId])
+      assert.deepEqual(
+        await watchedAs({ ...member, scope: ['read:comments'] }),
+        [],
+        'a key scoped away from read:pages lists nothing'
+      )
+      assert.deepEqual(
+        await watchedAs({ ...member, allowedClassifications: [] }),
+        [],
+        'a key allowed no classification lists nothing'
+      )
+      assert.deepEqual(
+        await watchedAs({ ...member, siteId: randomUUID() }),
+        [],
+        'a key pinned to another site lists nothing here'
+      )
+    } finally {
+      await pageWatchingModel.unwatch({ pageId, userId: watcherId })
+    }
   })
 
   test('a watcher who lost read:pages is excluded from listWatchers and from their own notification listing (OpenProject #2173)', async () => {
@@ -233,7 +268,11 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
     await groupsModel.reloadCache()
 
     try {
-      const listed = await pageWatchingModel.listForUser(fixtures.siteId, watcherId)
+      const listed = await pageWatchingModel.listForUser(
+        fixtures.siteId,
+        watcherId,
+        await groupsModel.actorForUserId(watcherId)
+      )
       assert.equal(
         listed.some((row) => row.pageId === pageId),
         false,

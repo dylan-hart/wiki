@@ -1092,7 +1092,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Revoke one of a user's passkeys",
         description:
-          'Only this instance forgets it — the credential itself lives on the user’s device and has to be deleted there too.',
+          'Only this instance forgets it — the credential itself lives on the user’s device and has to be deleted there too. Refused with `ERR_PASSKEY_LAST_LOGIN_METHOD` when it is the last way into the account, as `DELETE /users/:userId/auth/:strategyId` refuses the last provider: set the user a password first.',
         tags: ['Users'],
         params: {
           type: 'object',
@@ -1112,8 +1112,10 @@ async function routes(app: FastifyInstance) {
           204: {
             description: 'Passkey revoked successfully'
           },
+          400: { $ref: 'ApiError#' },
           401: { $ref: 'ApiError#' },
-          403: { $ref: 'ApiError#' }
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1128,7 +1130,13 @@ async function routes(app: FastifyInstance) {
         throw systemUserRefusal
       }
 
-      if (!(await CARDINAL.models.passkeys.remove(req.params.userId, req.params.passkeyId))) {
+      let wasRemoved = false
+      try {
+        wasRemoved = await CARDINAL.models.passkeys.remove(req.params.userId, req.params.passkeyId)
+      } catch (err: any) {
+        rethrowAsBadRequest(err)
+      }
+      if (!wasRemoved) {
         return reply.notFound('This user has no passkey with this ID.')
       }
       return reply.code(204).send()

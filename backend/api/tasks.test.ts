@@ -255,6 +255,61 @@ describe('GET /sites/:siteId/tasks (DB-backed)', { skip: !hasTestDatabase() }, (
     assert.ok(body.results.some((page) => page.path === 'team/locked'))
   })
 
+  test('an item’s source is returned only to a caller who may read the page’s source', async () => {
+    const source =
+      'call <!-- the real number is 555 --> <span data-note="secret">Bob</span> **now**'
+    await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'desk/sources',
+        title: 'Sources',
+        editor: 'markdown',
+        content: `- [ ] ${source}\n`,
+        publishState: 'published'
+      },
+      actor
+    )
+    const rule = (roles: string[]): GroupRule => ({
+      id: `desk-${roles.join('-')}`,
+      name: 'Desk',
+      roles,
+      match: 'SUBTREE',
+      mode: 'ALLOW',
+      path: 'desk',
+      locales: [],
+      sites: []
+    })
+    const groupFor = async (name: string, roles: string[]) => {
+      const [group] = await fixtures.db
+        .insert(groupsTable)
+        .values({ name, permissions: [], rules: [rule(roles)] })
+        .returning({ id: groupsTable.id })
+      return group!.id
+    }
+    const readers = await groupFor('Desk readers', ['read:pages'])
+    const sourceReaders = await groupFor('Desk source readers', ['read:pages', 'read:source'])
+    const writers = await groupFor('Desk writers', ['read:pages', 'write:pages'])
+    await groupsModel.reloadCache()
+
+    const itemTextAs = async (groupId: string) => {
+      testSession = {
+        authenticated: true,
+        user: { id: fixtures.userId },
+        groups: [groupId],
+        permissions: []
+      }
+      const body = await get('?folder=desk')
+      assert.equal(body.results.length, 1)
+      return body.results[0]!.items[0]!.text
+    }
+
+    const visible = await itemTextAs(readers)
+    assert.equal(visible, 'call Bob now')
+    assert.ok(!visible.includes('555'))
+    assert.equal(await itemTextAs(sourceReaders), source)
+    assert.equal(await itemTextAs(writers), source)
+  })
+
   test('pages are sliced after filtering, so totalHits ignores limit and offset', async () => {
     asReader()
     const first = await get('?limit=1')

@@ -312,7 +312,7 @@ test('an overwrite rewrites the width/height keys of assets.meta from the new up
       ...global.CARDINAL,
       ...cacheFsStubs,
       sites: { 'site-1': { config: { uploads: { conflictBehavior: 'overwrite' } } } },
-      db: { select: () => chain, update: () => chain, delete: () => chain, insert: () => chain },
+      db: chainDb(chain),
       models: {
         ...(global.CARDINAL as any).models,
         tree: {
@@ -379,12 +379,20 @@ function makeAssetsDbStub(assetRow: unknown) {
     values: () => chain,
     limit: () => Promise.resolve([assetRow])
   }
-  return {
+  return chainDb(chain)
+}
+
+/** Every builder answers `chain`, and a transaction runs its callback against the same object. */
+function chainDb(chain: unknown) {
+  const db: any = {
     select: () => chain,
     update: () => chain,
     delete: () => chain,
-    insert: () => chain
+    insert: () => chain,
+    execute: async () => ({ rows: [] })
   }
+  db.transaction = async (fn: (tx: unknown) => unknown) => fn(db)
+  return db
 }
 
 /**
@@ -800,7 +808,7 @@ test('an overwrite clears the extracted search text, which described the bytes j
     ...global.CARDINAL,
     ...cacheFsStubs,
     sites: { 'site-1': { config: { uploads: { conflictBehavior: 'overwrite' } } } },
-    db: { select: () => chain, update: () => chain, delete: () => chain, insert: () => chain },
+    db: chainDb(chain),
     models: {
       ...(global.CARDINAL as any).models,
       tree: {
@@ -831,6 +839,69 @@ test('an overwrite clears the extracted search text, which described the bytes j
   assert.equal(assetSet.searchContent, null)
   assert.equal(assetSet.ts, null)
 })
+
+for (const semanticSearch of [true, false]) {
+  test(`an overwrite ${semanticSearch ? 'drops' : 'leaves alone'} the old file's embedding chunks with semantic search ${semanticSearch ? 'on' : 'off'}`, async () => {
+    const chain: any = {
+      from: () => chain,
+      innerJoin: () => chain,
+      where: () => chain,
+      values: () => chain,
+      limit: () => Promise.resolve([undefined]),
+      set: () => chain
+    }
+    const executed: string[] = []
+    const tx: any = {
+      update: () => chain,
+      execute: async (query: { queryChunks?: unknown[] }) => {
+        executed.push(JSON.stringify(query.queryChunks ?? []))
+        return { rows: [] }
+      }
+    }
+    const pool = chainDb(chain)
+    pool.execute = async () => {
+      throw new Error('the chunks must go in the same transaction as the bytes')
+    }
+    pool.transaction = async (fn: (t: unknown) => unknown) => fn(tx)
+    global.CARDINAL = {
+      ...global.CARDINAL,
+      ...cacheFsStubs,
+      capabilities: { semanticSearch },
+      sites: { 'site-1': { config: { uploads: { conflictBehavior: 'overwrite' } } } },
+      db: pool,
+      models: {
+        ...(global.CARDINAL as any).models,
+        tree: {
+          getEntryAt: async () => ({
+            type: 'asset',
+            id: 'asset-1',
+            fileName: 'test.txt',
+            folderPath: '',
+            title: 'test.txt'
+          })
+        },
+        hooks: { emit: () => {} },
+        storage: { dispatch: () => {} }
+      }
+    } as unknown as CardinalGlobal
+
+    await assets.upload({
+      siteId: 'site-1',
+      locale: 'en',
+      fileName: 'test.txt',
+      data: Buffer.from('hello'),
+      authorId: 'user-1'
+    })
+
+    if (semanticSearch) {
+      assert.equal(executed.length, 1)
+      assert.match(executed[0]!, /DELETE FROM \\"assetEmbeddingChunks\\"/)
+      assert.match(executed[0]!, /asset-1/)
+    } else {
+      assert.deepEqual(executed, [])
+    }
+  })
+}
 
 test('setSearchContent stores the text with a vector, and clears both for blank text', async () => {
   const sets: any[] = []
@@ -970,7 +1041,7 @@ test('an overwrite of a PDF queues extraction for the existing asset id', async 
     ...cacheFsStubs,
     scheduler: { addJob },
     sites: { 'site-1': { config: { uploads: { conflictBehavior: 'overwrite' } } } },
-    db: { select: () => chain, update: () => chain, delete: () => chain, insert: () => chain },
+    db: chainDb(chain),
     models: {
       ...(global.CARDINAL as any).models,
       tree: {

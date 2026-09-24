@@ -179,6 +179,48 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
     })
   })
 
+  test("an operator's sideloaded override keeps winning over a downloaded string for the same key", async () => {
+    const dataPath = path.join(scratchDir, 'data')
+    CARDINAL.config = { dataPath }
+    await mkdir(path.join(dataPath, 'locales'), { recursive: true })
+    await writeFile(
+      path.join(dataPath, 'locales/fr-t11.json'),
+      JSON.stringify({ name: 'French', language: 'fr', strings: { welcome: 'Salut (sideloaded)' } })
+    )
+    await seedLocale('fr-t11', { welcome: 'Salut (sideloaded)', save: 'Enregistrer' })
+    stubFetch([makeLang('fr-t11', 'French')], {
+      'fr-t11': { welcome: 'Bienvenue', bye: 'Au revoir' }
+    })
+
+    await task()
+
+    assert.deepEqual((await storedRow('fr-t11')).strings, {
+      welcome: 'Salut (sideloaded)',
+      bye: 'Au revoir',
+      save: 'Enregistrer'
+    })
+  })
+
+  test('never downloads or writes en: the bundled en.json is the source of truth', async () => {
+    stubFetch([makeLang('en', 'English'), makeLang('fr-t12', 'French')], {
+      en: { welcome: 'Wiki.js welcome' },
+      'fr-t12': { welcome: 'Bienvenue' }
+    })
+
+    await task()
+
+    const urls = (globalThis.fetch as unknown as ReturnType<typeof mock.fn>).mock.calls.map(
+      (call) => String(call.arguments[0])
+    )
+    assert.equal(
+      urls.some((url) => url.endsWith('/en.json')),
+      false
+    )
+    const enRows = await fixtures.db.select().from(localesTable).where(eq(localesTable.code, 'en'))
+    assert.equal(enRows.length, 0)
+    assert.deepEqual((await storedRow('fr-t12')).strings, { welcome: 'Bienvenue' })
+  })
+
   test('computes completeness off the merged strings against the bundled en strings', async () => {
     await seedLocale('fr-t7', { save: 'Enregistrer', cancel: 'Annuler' }, 0)
     stubFetch([makeLang('fr-t7', 'French')], { 'fr-t7': { welcome: 'Bienvenue' } })
@@ -464,6 +506,33 @@ describe('update-locales.task (unit, no DB)', () => {
     })
     assert.deepEqual(downloaded, { welcome: 'Bienvenue' })
     assert.equal(typeof baseStrings['common.actions.save'], 'string')
+  })
+
+  test('skips en even when the metadata lists it, and still syncs the rest', async () => {
+    const urls: string[] = []
+    globalThis.fetch = mock.fn(async (url: string) => {
+      urls.push(url)
+      if (url.includes('metadata.json')) {
+        return new Response(
+          JSON.stringify({
+            languages: [makeLang({ language: 'en', name: 'English' }), makeLang()]
+          }),
+          { status: 200 }
+        )
+      }
+      return new Response(JSON.stringify({ welcome: 'Welcome' }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    await task()
+
+    assert.deepEqual(
+      mergeDownloadedStrings.mock.calls.map((call) => call.arguments[0]),
+      ['fr']
+    )
+    assert.equal(
+      urls.some((url) => url.endsWith('/en.json')),
+      false
+    )
   })
 
   test('routes a real update through the HA cache-broadcast path exactly once', async () => {

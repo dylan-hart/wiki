@@ -45,7 +45,8 @@ let wrapper = null
 async function mountNoteEditor({
   content = 'Note body',
   uploadFile = null,
-  collabReady = false
+  collabReady = false,
+  readonly = false
 } = {}) {
   setActivePinia(createPinia())
   const pageStore = usePageStore()
@@ -63,7 +64,7 @@ async function mountNoteEditor({
   }
 
   wrapper = mount(EditorWysiwyg, {
-    props: { content, uploadFile },
+    props: { content, uploadFile, readonly },
     global: { plugins: [createTestI18n()] }
   })
   await nextTick()
@@ -108,6 +109,19 @@ describe('EditorWysiwyg note mode', () => {
     wrapper.unmount()
     wrapper = null
     expect(stopCollabSession).not.toHaveBeenCalled()
+  })
+
+  it('refuses typing while readonly, and allows it again once lifted, without emitting', async () => {
+    await mountNoteEditor({ content: 'Locked', readonly: true })
+    expect(wrapper.vm.editor.isEditable).toBe(false)
+    expect(wrapper.find('.ProseMirror').attributes('contenteditable')).toBe('false')
+
+    await wrapper.setProps({ readonly: false })
+    expect(wrapper.vm.editor.isEditable).toBe(true)
+
+    await wrapper.setProps({ readonly: true })
+    expect(wrapper.vm.editor.isEditable).toBe(false)
+    expect(wrapper.emitted('update:content')).toBeFalsy()
   })
 
   it('replaces the document when the parent swaps in different content, without echoing it', async () => {

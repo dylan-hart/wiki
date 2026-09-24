@@ -48,6 +48,16 @@ export const TREE_ORDER_BY = ['createdAt', 'fileName', 'sortOrder', 'title', 'up
 
 export type TreeOrderBy = (typeof TREE_ORDER_BY)[number]
 
+/** A folder entry as `reorderChildren` hands it to its caller's visibility filter. */
+export interface ReorderEntry {
+  id: string
+  type: string
+  folderPath: string
+  fileName: string
+  tags: string[]
+  classification: string | null
+}
+
 /**
  * One shape for all three kinds rather than three: a folder listing interleaves them, and the type
  * field is what tells them apart.
@@ -2422,26 +2432,43 @@ class Tree {
   }
 
   /**
-   * `ids` must be exactly the folder's page and folder rows (assets are not ordered). A page and a
-   * folder sharing a name are two rows: both must be listed, and both take the position of whichever
-   * appears first, so `browse()` sees one entry. The parent folder row is locked because inserts and
-   * moves update its child count, which serialises them against this; the site root has no such row.
+   * `ids` must be exactly the folder's page and folder rows the caller can see (assets are not
+   * ordered): what `getTree()` lists to them, `publicOnly` and `filterVisible` being the same two
+   * filters it is listed through. A page and a folder sharing a name are one entry of two rows: every
+   * visible one must be listed, the pair takes the position of whichever appears first, and a row of
+   * the pair the caller cannot see moves with the one they can, so `browse()` still sees one entry.
    *
+   * An entry the caller cannot see at all keeps its place: taking the folder in its current order
+   * (`sortOrder`, then title, as `getTree()` sorts it), every place a visible entry holds is refilled
+   * with the visible entries in the order `ids` gives, and every hidden entry stays where it is. So
+   * a hidden entry is neither a reason to refuse the reorder nor something its answer gives away.
+   *
+   * The parent folder row is locked because inserts and moves update its child count, which
+   * serialises them against this; the site root has no such row.
+   *
+   * @param publicOnly As `getTree()`'s: a page an anonymous reader is not shown is hidden.
+   * @param filterVisible The caller's own permission filter over the folder's entries
+   *   (`helpers/pageAccess.ts#visibleTreeItems`). Absent, every entry is visible.
    * @throws CustomError `treeInvalidFolder` (404), `treeReorderStale` (409) when `ids` no longer
-   *         matches the folder, `treeReorderInvalid` (400) for a repeated id
+   *         matches what the caller can see of the folder, `treeReorderInvalid` (400) for a repeated
+   *         id
    */
   async reorderChildren({
     siteId,
     locale,
     parentId,
     parentPath,
-    ids
+    ids,
+    publicOnly = false,
+    filterVisible
   }: {
     siteId: string
     locale: string
     parentId?: string | null
     parentPath?: string | null
     ids: string[]
+    publicOnly?: boolean
+    filterVisible?: (entries: ReorderEntry[]) => ReorderEntry[]
   }): Promise<{ count: number }> {
     if (new Set(ids).size !== ids.length) {
       throw new CustomError('treeReorderInvalid', 'The list holds the same entry twice.', 400)
@@ -2475,7 +2502,12 @@ class Tree {
       }
 
       const children = await tx
-        .select({ id: treeTable.id, fileName: treeTable.fileName })
+        .select({
+          id: treeTable.id,
+          type: treeTable.type,
+          fileName: treeTable.fileName,
+          tags: treeTable.tags
+        })
         .from(treeTable)
         .where(
           and(
@@ -2485,22 +2517,38 @@ class Tree {
             inArray(treeTable.type, ['page', 'folder'])
           )
         )
+        .orderBy(...orderByClauses('sortOrder', 'asc'))
         .for('update')
 
-      const nameById = new Map(children.map((child) => [child.id, child.fileName]))
-      if (nameById.size !== ids.length || ids.some((id) => !nameById.has(id))) {
+      const visibleIds = await this.reorderVisibleIds(tx, children, {
+        folderPath: decodeTreePath(path) ?? '',
+        publicOnly,
+        filterVisible
+      })
+      if (visibleIds.size !== ids.length || ids.some((id) => !visibleIds.has(id))) {
         throw staleError()
       }
 
+      // -> Entries (a name, and the one or two rows under it) in the folder's current order
+      const entries = new Map<string, boolean>()
+      for (const child of children) {
+        entries.set(
+          child.fileName,
+          (entries.get(child.fileName) ?? false) || visibleIds.has(child.id)
+        )
+      }
+      const nameById = new Map(children.map((child) => [child.id, child.fileName]))
+      const requested = [...new Set(ids.map((id) => nameById.get(id)!))]
+      let nextRequested = 0
       const positionByName = new Map<string, number>()
-      for (const id of ids) {
-        const name = nameById.get(id)!
-        if (!positionByName.has(name)) {
-          positionByName.set(name, positionByName.size)
-        }
+      for (const [name, visible] of entries) {
+        positionByName.set(visible ? requested[nextRequested++]! : name, positionByName.size)
       }
 
-      for (const batch of chunk(ids, TREE_UPDATE_CHUNK_SIZE)) {
+      for (const batch of chunk(
+        children.map((child) => child.id),
+        TREE_UPDATE_CHUNK_SIZE
+      )) {
         const cases = sql.join(
           batch.map(
             (id) => sql`when ${id}::uuid then ${positionByName.get(nameById.get(id)!)!}::integer`
@@ -2517,6 +2565,46 @@ class Tree {
 
     CARDINAL.models.navigation.invalidateCache(siteId)
     return { count }
+  }
+
+  /** Which of a folder's locked rows `reorderChildren`'s caller can see, by `getTree()`'s rules. */
+  private async reorderVisibleIds(
+    tx: WikiDbOrTx,
+    children: { id: string; type: string; fileName: string; tags: string[] | null }[],
+    {
+      folderPath,
+      publicOnly,
+      filterVisible
+    }: {
+      folderPath: string
+      publicOnly: boolean
+      filterVisible?: (entries: ReorderEntry[]) => ReorderEntry[]
+    }
+  ): Promise<Set<string>> {
+    const pageIds = children.filter((child) => child.type === 'page').map((child) => child.id)
+    if (pageIds.length < 1 || (!publicOnly && !filterVisible)) {
+      return new Set(children.map((child) => child.id))
+    }
+    const pageRows = await tx
+      .select({
+        id: pagesTable.id,
+        classification: pagesTable.classification,
+        listed: sql<boolean>`${and(...pageIsVisible(pagesTable, true))}`.mapWith(Boolean)
+      })
+      .from(pagesTable)
+      .where(inArray(pagesTable.id, pageIds))
+    const pageById = new Map(pageRows.map((row) => [row.id, row]))
+    const entries: ReorderEntry[] = children
+      .filter((child) => !publicOnly || child.type !== 'page' || pageById.get(child.id)?.listed)
+      .map((child) => ({
+        id: child.id,
+        type: child.type,
+        folderPath,
+        fileName: child.fileName,
+        tags: child.tags ?? [],
+        classification: pageById.get(child.id)?.classification ?? null
+      }))
+    return new Set((filterVisible ? filterVisible(entries) : entries).map((entry) => entry.id))
   }
 
   async deleteEntry(id: string, db: WikiDbOrTx = CARDINAL.db): Promise<boolean> {

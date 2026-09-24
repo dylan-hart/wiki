@@ -12,6 +12,9 @@ props:
     icon: tabler:key
     sensitive: true
     required: true
+    # -> Printable ASCII only, refused at save: a control character inside the key makes fetch
+    #    throw an error quoting the whole header value. Surrounding whitespace is trimmed on use.
+    pattern: '^\s*[\x21-\x7e]+\s*$'
     order: 1
   model:
     type: String

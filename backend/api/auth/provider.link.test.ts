@@ -44,6 +44,36 @@ describe('linkResultUrl', () => {
       'https://wiki.example.com/p?authLink=added&strategyId=s1'
     )
   })
+
+  // -> Each passes `isFollowableRedirectTarget` as written, and normalizes to a `//evil.example`
+  //    pathname once parsed
+  for (const redirect of [
+    '/.//evil.example',
+    '/a/..//evil.example',
+    '/%2e//evil.example',
+    '/%2E%2E//evil.example',
+    '/./\\evil.example',
+    '/.//evil.example#frag'
+  ]) {
+    test(`never turns ${JSON.stringify(redirect)} into a protocol-relative URL`, () => {
+      const result = linkResultUrl(redirect, { authLinkError: 'ERR_LINK_NOT_SIGNED_IN' })
+      assert.equal(result, '/?authLinkError=ERR_LINK_NOT_SIGNED_IN')
+    })
+  }
+
+  test('an absolute target in a scheme it may not follow falls back to /', () => {
+    assert.equal(
+      linkResultUrl('javascript:alert(1)//', { authLink: 'added', strategyId: 's1' }),
+      '/?authLink=added&strategyId=s1'
+    )
+  })
+
+  test('a rooted path containing dot segments that stays on this origin is kept', () => {
+    assert.equal(
+      linkResultUrl('/a/../en/home', { authLink: 'added', strategyId: 's1' }),
+      '/en/home?authLink=added&strategyId=s1'
+    )
+  })
 })
 
 describe('/auth/:strategyId/authorize?mode=link and its callback', () => {
@@ -310,6 +340,28 @@ describe('/auth/:strategyId/authorize?mode=link and its callback', () => {
 
       const { location } = locationParams(res)
       assert.ok(location.startsWith('/?'), location)
+    })
+
+    for (const redirect of ['/.//evil.example', '/a/..//evil.example', '/%2e//evil.example']) {
+      test(`a signed-out refusal for redirect=${redirect} stays on this origin`, async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/auth/${STRATEGY_ID}/authorize?mode=link&redirect=${encodeURIComponent(redirect)}`
+        })
+
+        assert.equal(res.statusCode, 302)
+        assert.equal(res.headers.location, '/?authLinkError=ERR_LINK_NOT_SIGNED_IN')
+      })
+    }
+
+    test('a redirect carrying a tab is not stored on the flow', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/auth/${STRATEGY_ID}/authorize?redirect=${encodeURIComponent('/\t/evil.example')}`
+      })
+
+      assert.equal(res.statusCode, 302)
+      assert.equal(session.authFlow.redirect, '/')
     })
   })
 

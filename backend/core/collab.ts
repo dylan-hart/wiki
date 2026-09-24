@@ -35,6 +35,11 @@ import type { WebSocket } from 'ws'
  * from the event bus's: these messages are frequent, binary, and worthless a second later. One too
  * large for a NOTIFY payload is base64'd and chunked ({@link relay}).
  *
+ * The relay is at-most-once, and a gap in it does not heal by itself: Yjs parks an update whose
+ * predecessors it never saw instead of applying it. So whenever messages may have been lost, every
+ * open room swaps state vectors with its peers and each side sends the other what it lacks
+ * ({@link resyncRooms}).
+ *
  * ## Where a room's starting state comes from
  *
  * A Yjs document cannot be seeded twice: two instances each inserting the page's text produce
@@ -169,6 +174,8 @@ interface CollabRoom {
    */
   wysiwygSeeded: boolean
   relayOutbox: RelayOutbox
+  /** Peers appeared while this room was still filling itself, so it owes them a resync once ready. */
+  resyncWhenReady: boolean
 }
 
 interface RelayOutbox {
@@ -200,8 +207,20 @@ interface RelayEnvelope {
   i: string
   /** Room, i.e. page id. */
   r: string
-  t: 'update' | 'awareness' | 'hello' | 'state' | 'saved' | 'wysiwyg-claim' | 'wysiwyg-claimed'
-  /** Payload: base64 for the binary kinds, JSON for `saved`, absent for `hello`. */
+  t:
+    | 'update'
+    | 'awareness'
+    | 'hello'
+    | 'state'
+    | 'saved'
+    | 'wysiwyg-claim'
+    | 'wysiwyg-claimed'
+    | 'resync'
+    | 'diff'
+  /**
+   * Payload: base64 for the binary kinds (for `resync`, the sender's state vector), JSON for
+   * `saved`, absent for `hello`.
+   */
   p?: string
   /** Instance this is addressed to, when it is a reply rather than a broadcast. */
   to?: string
@@ -231,6 +250,13 @@ function toBytes(data: unknown): Uint8Array {
     return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
   }
   return new Uint8Array(data as ArrayBuffer)
+}
+
+/** How many NOTIFYs {@link relay} would split a message into, for counting one it drops. */
+function notifyCount(message: { p?: string }): number {
+  return message.p && message.p.length > RELAY_CHUNK_SIZE
+    ? Math.ceil(message.p.length / RELAY_CHUNK_SIZE)
+    : 1
 }
 
 /**
@@ -294,6 +320,8 @@ export default {
   peerPresence: { known: false, checkedAt: 0 },
   peerCheck: null as Promise<boolean> | null,
   peerGated: [] as Omit<RelayEnvelope, 'i'>[],
+  /** Set when the listener connection drops, so its replacement is known to follow a gap. */
+  relayInterrupted: false,
   pingTimer: null as NodeJS.Timeout | null,
 
   /**
@@ -317,9 +345,7 @@ export default {
         }
       },
       getClient: () => this.listenClient,
-      setClient: (client) => {
-        this.listenClient = client
-      }
+      setClient: (client) => this.onListenerClient(client)
     })
 
     this.pingTimer = setInterval(() => {
@@ -340,6 +366,27 @@ export default {
     }, PING_INTERVAL)
 
     CARDINAL.logger.debug('collab', 'collaborative editing initialized')
+  },
+
+  /**
+   * Nothing was sent or received while the listener was reconnecting, and the presence cache may
+   * have been filled by a check that ran while a peer's own listener was down. So the cache is
+   * forgotten and asked again, behind any check already in flight since that one may predate the
+   * gap: finding company again is a transition like any other, and {@link notePeerPresence}
+   * resyncs every open room on it.
+   */
+  onListenerClient(client: PoolClient | null): void {
+    this.listenClient = client
+    if (!client) {
+      this.relayInterrupted = true
+      return
+    }
+    if (!this.relayInterrupted) {
+      return
+    }
+    this.relayInterrupted = false
+    this.peerPresence = { known: false, checkedAt: 0 }
+    void (this.peerCheck ?? Promise.resolve(false)).then(() => this.refreshPeers())
   },
 
   async shutdown(): Promise<void> {
@@ -409,17 +456,55 @@ export default {
               AND application_name <> ${ownName} LIMIT 1`
       )
       if (!this.peerPresenceProvenSince(now)) {
-        this.peerPresence = { known: result.rows.length > 0, checkedAt: Date.now() }
+        this.notePeerPresence(result.rows.length > 0)
       }
     } catch (err: any) {
       // -> Assume company: a wasted timeout is a far smaller mistake than duplicating a page's text
       CARDINAL.logger.warn('collab', 'could not determine whether peer instances are running', {
         error: err
       })
-      this.peerPresence = { known: true, checkedAt: Date.now() }
+      this.notePeerPresence(true)
     }
     this.flushPeerGated()
     return this.peerPresence.known
+  },
+
+  /**
+   * Records a presence answer. A flip from "alone" to "company" means every `update` and
+   * `awareness` relayed in between was dropped ({@link mayRelayToPeers}), and a room opened in
+   * between seeded itself from the stored page without asking -- so every open room resyncs, once
+   * per flip rather than once per message.
+   */
+  notePeerPresence(known: boolean): void {
+    const appeared = known && !this.peerPresence.known
+    this.peerPresence = { known, checkedAt: Date.now() }
+    if (appeared) {
+      this.resyncRooms()
+    }
+  },
+
+  /**
+   * Swap state vectors with the cluster for every open room ({@link receiveRelay}'s `resync`
+   * case). A room still filling itself has nothing to offer yet, and is resynced once it is ready
+   * instead ({@link initRoom}).
+   */
+  resyncRooms(): void {
+    for (const room of this.rooms.values()) {
+      if (room.provisional) {
+        room.resyncWhenReady = true
+      } else {
+        this.resyncRoom(room)
+      }
+    }
+  },
+
+  resyncRoom(room: CollabRoom): void {
+    room.resyncWhenReady = false
+    this.relay({
+      r: room.pageId,
+      t: 'resync',
+      p: Buffer.from(Y.encodeStateVector(room.doc)).toString('base64')
+    })
   },
 
   peerPresenceProvenSince(since: number): boolean {
@@ -430,6 +515,9 @@ export default {
     const held = this.peerGated
     this.peerGated = []
     if (!this.peerPresence.known) {
+      for (const message of held) {
+        notifier.discard('no_peer', notifyCount(message))
+      }
       return
     }
     for (const message of held) {
@@ -440,6 +528,9 @@ export default {
   mayRelayToPeers(message: Omit<RelayEnvelope, 'i'>): boolean {
     const fresh = Date.now() - this.peerPresence.checkedAt < PEER_PRESENCE_TTL
     if (fresh && this.peerGated.length === 0) {
+      if (!this.peerPresence.known) {
+        notifier.discard('no_peer', notifyCount(message))
+      }
       return this.peerPresence.known
     }
     this.peerGated.push(message)
@@ -627,6 +718,7 @@ export default {
       draftPersist: { timer: null, pendingSince: null, inFlight: null },
       lastAuthorName: null,
       wysiwygSeeded: false,
+      resyncWhenReady: false,
       relayOutbox: {
         updates: [],
         updateTimer: null,
@@ -712,6 +804,11 @@ export default {
     } finally {
       room.provisional = false
       this.awaitingState.delete(room.pageId)
+      // -> Peers appeared while this room was filling itself: seeded from the stored page, it holds
+      //    none of what they have, and whatever it relayed meanwhile was dropped on its way out
+      if (room.resyncWhenReady && this.rooms.get(room.pageId) === room) {
+        this.resyncRoom(room)
+      }
     }
   },
 
@@ -1037,11 +1134,17 @@ export default {
    * Publish a message to the other instances, split into chunks postgres will accept. `update` and
    * `awareness` are dropped while no peer is known, and held in order behind a presence check while
    * that answer is stale. Nothing else is gated: a starting peer's `hello` is what reveals it (any
-   * message from a peer marks it present, {@link receiveRelay}), and the `state` reply carries
-   * whatever was dropped before it.
+   * message from a peer marks it present, {@link receiveRelay}).
+   *
+   * Everything is dropped while the listener connection is down. Neither kind of drop is made good
+   * by a `state` reply, which only a room being opened ever asks for: an already-open room catches
+   * up through {@link resyncRooms}, run when the listener comes back ({@link onListenerClient}) and
+   * when peers appear after the gate had found none ({@link notePeerPresence}). Both drops are
+   * counted in `cardinaljs_pubsub_notify_dropped_total`, as `no_client` and `no_peer`.
    */
   relay(message: Omit<RelayEnvelope, 'i'>): void {
     if (!this.listenClient) {
+      notifier.discard('no_client', notifyCount(message))
       return
     }
     if ((message.t === 'update' || message.t === 'awareness') && !this.mayRelayToPeers(message)) {
@@ -1079,7 +1182,7 @@ export default {
     if (envelope.i === CARDINAL.INSTANCE_ID) {
       return
     }
-    this.peerPresence = { known: true, checkedAt: Date.now() }
+    this.notePeerPresence(true)
     if (envelope.to && envelope.to !== CARDINAL.INSTANCE_ID) {
       return
     }
@@ -1124,10 +1227,40 @@ export default {
         }
         break
       }
-      case 'update': {
+      case 'update':
+      case 'diff': {
         const room = this.rooms.get(envelope.r)
         if (room) {
           Y.applyUpdate(room.doc, Buffer.from(envelope.p ?? '', 'base64'), RELAYED)
+        }
+        break
+      }
+      case 'resync': {
+        /*
+          A peer that may have missed messages, with its state vector: it gets back exactly what it
+          lacks. A broadcast ask is answered with this instance's own state vector too, so the peer
+          sends back what this side lacks in turn; a reply (`to` set) is not, or the two would ask
+          each other forever. Answered as a `diff`, not a `state`: a `state` can resolve a waiting
+          peerState(), which must be handed a whole document.
+        */
+        const room = this.rooms.get(envelope.r)
+        if (!room || room.provisional || !envelope.p) {
+          return
+        }
+        const theirs = Buffer.from(envelope.p, 'base64')
+        this.relay({
+          r: envelope.r,
+          t: 'diff',
+          to: envelope.i,
+          p: Buffer.from(Y.encodeStateAsUpdate(room.doc, theirs)).toString('base64')
+        })
+        if (!envelope.to) {
+          this.relay({
+            r: envelope.r,
+            t: 'resync',
+            to: envelope.i,
+            p: Buffer.from(Y.encodeStateVector(room.doc)).toString('base64')
+          })
         }
         break
       }

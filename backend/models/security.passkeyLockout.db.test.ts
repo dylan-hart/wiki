@@ -1,6 +1,7 @@
 import { after, before, beforeEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { users as usersTable } from '../db/schema.ts'
+import { DISCONNECTED_AUTH_KEY } from '../helpers/userAuthEntries.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 
 const passkeys = { authenticators: [{ id: 'cred-1', name: 'Laptop' }] }
@@ -28,6 +29,8 @@ describe('Security#checkPasskeyLockout (DB-backed)', { skip: !hasTestDatabase() 
   beforeEach(async () => {
     await fixtures.db.delete(usersTable)
     CARDINAL.config.security = { allowPasskeys: true }
+    // -> Both enabled and loaded, unless a test says otherwise: only a working one is a way in
+    CARDINAL.auth.strategies = { local: {}, github: {} } as any
   })
 
   async function addUser(auth: Record<string, unknown>, passkeyStore: object = passkeys) {
@@ -62,8 +65,8 @@ describe('Security#checkPasskeyLockout (DB-backed)', { skip: !hasTestDatabase() 
   })
 
   test('allows it when the local login is not restricted', async () => {
-    await addUser({ local: { password: 'x', restrictLogin: false } })
-    await addUser({ local: { password: 'x' } })
+    await addUser({ local: { password: 'x', isPasswordKnown: true, restrictLogin: false } })
+    await addUser({ local: { password: 'x', isPasswordKnown: true } })
 
     assert.equal(await security.checkPasskeyLockout({ allowPasskeys: false }), null)
   })
@@ -75,6 +78,31 @@ describe('Security#checkPasskeyLockout (DB-backed)', { skip: !hasTestDatabase() 
     })
 
     assert.equal(await security.checkPasskeyLockout({ allowPasskeys: false }), null)
+  })
+
+  test('refuses when the only other provider belongs to a disabled or deleted strategy', async () => {
+    CARDINAL.auth.strategies = { local: {} } as any
+    await addUser({
+      local: { password: 'x', restrictLogin: true },
+      github: { id: '1' }
+    })
+
+    assert.match((await security.checkPasskeyLockout({ allowPasskeys: false })) ?? '', /1 account/)
+  })
+
+  test('refuses when the password is one its holder does not know', async () => {
+    await addUser({ local: { password: 'x', isPasswordKnown: false } })
+
+    assert.match((await security.checkPasskeyLockout({ allowPasskeys: false })) ?? '', /1 account/)
+  })
+
+  test('a record of a disconnected provider is not mistaken for a way in', async () => {
+    await addUser({
+      local: { password: 'x', restrictLogin: true },
+      [DISCONNECTED_AUTH_KEY]: { github: '2026-09-23T00:00:00.000Z' }
+    })
+
+    assert.match((await security.checkPasskeyLockout({ allowPasskeys: false })) ?? '', /1 account/)
   })
 
   test('ignores a restricted account that has no passkey', async () => {

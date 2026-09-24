@@ -7,6 +7,8 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 describe('watch preference routes (task 530)', () => {
   let app: FastifyInstance
   let session: any
+  let apiKey: any
+  let listForUserMock: ReturnType<typeof mock.fn>
   let watchMock: ReturnType<typeof mock.fn>
   let setPreferenceMock: ReturnType<typeof mock.fn>
   let getPreferenceMock: ReturnType<typeof mock.fn>
@@ -26,14 +28,22 @@ describe('watch preference routes (task 530)', () => {
   before(async () => {
     app = await buildTestApp({
       routes: watchingRoutes,
-      session: () => session,
+      // -> `apiKey` rides along as a per-request side effect, the way a bearer token would arrive
+      session: (req: any) => {
+        req.apiKey = apiKey
+        return session
+      },
       wiki: {
         models: {
           pages: {
             getPage: (...args: any[]) => getPageMock(...args)
           },
           groups: {
-            actorForRequest: () => ({ groupIds: [], permissions: [] }),
+            actorForRequest: (req: any) => ({
+              groupIds: [],
+              permissions: [],
+              scope: req.apiKey?.scope ?? null
+            }),
             checkAccess: () => true,
             groupIdsForRequest: () => []
           },
@@ -42,7 +52,7 @@ describe('watch preference routes (task 530)', () => {
             setPreference: (...args: any[]) => setPreferenceMock(...args),
             getPreference: (...args: any[]) => getPreferenceMock(...args),
             unwatch: async () => {},
-            listForUser: async () => []
+            listForUser: (...args: any[]) => listForUserMock(...args)
           }
         }
       }
@@ -53,6 +63,8 @@ describe('watch preference routes (task 530)', () => {
 
   beforeEach(() => {
     session = { authenticated: true, user: { id: USER_ID }, permissions: [] }
+    apiKey = null
+    listForUserMock = mock.fn(async () => [])
     watchMock = mock.fn(async () => {})
     setPreferenceMock = mock.fn(async () => true)
     getPreferenceMock = mock.fn(async () => RESOLVED_PREFERENCE)
@@ -60,6 +72,30 @@ describe('watch preference routes (task 530)', () => {
   })
 
   const WATCH_URL = `/sites/${SITE_ID}/pages/${PAGE_ID}/watch`
+
+  test('GET /watching filters as the request’s own actor, so an API key’s scope reaches the model', async () => {
+    session = undefined
+    apiKey = {
+      id: 'key-1',
+      userId: USER_ID,
+      permissions: [],
+      groupIds: [],
+      scope: ['read:comments']
+    }
+
+    const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/watching` })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(listForUserMock.mock.calls.length, 1)
+    const [siteId, userId, actor] = listForUserMock.mock.calls[0]!.arguments as [
+      string,
+      string,
+      any
+    ]
+    assert.equal(siteId, SITE_ID)
+    assert.equal(userId, USER_ID)
+    assert.deepEqual(actor.scope, ['read:comments'])
+  })
 
   test('PATCH sets a preference and returns the resolved value', async () => {
     const res = await app.inject({

@@ -64,9 +64,67 @@ describe('createNoteAutosave', () => {
 
     first.resolve({})
     await vi.advanceTimersByTimeAsync(0)
+    expect(save).toHaveBeenCalledTimes(1)
+
+    // -> The first save went out at 100ms; the next waits out the 3s minimum interval.
+    await vi.advanceTimersByTimeAsync(2650)
     expect(save).toHaveBeenCalledTimes(2)
     expect(save).toHaveBeenLastCalledWith('n1', { content: 'three' })
     expect(autosave.state.status).toBe('saved')
+  })
+
+  it('spaces saves of one note at least minInterval apart, however the pauses fall', async () => {
+    const save = vi.fn(async () => ({}))
+    const autosave = createNoteAutosave({ save, delay: 800, minInterval: 3000 })
+    const sentAt = []
+    save.mockImplementation(async () => {
+      sentAt.push(Date.now())
+      return {}
+    })
+    const start = Date.now()
+
+    // -> A steady typist pausing just past the debounce, for 20 seconds.
+    for (let i = 0; i < 20; i++) {
+      autosave.schedule('n1', { content: `edit ${i}` })
+      await vi.advanceTimersByTimeAsync(1000)
+    }
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(sentAt.length).toBeGreaterThan(1)
+    expect(sentAt.length).toBeLessThanOrEqual(8)
+    for (let i = 1; i < sentAt.length; i++) {
+      expect(sentAt[i] - sentAt[i - 1]).toBeGreaterThanOrEqual(3000)
+    }
+    expect(save).toHaveBeenLastCalledWith('n1', { content: 'edit 19' })
+    expect(autosave.hasPending()).toBe(false)
+    expect(sentAt[0] - start).toBe(800)
+  })
+
+  it('keeps the interval per note, so another note saves on its own debounce', async () => {
+    const save = vi.fn(async () => ({}))
+    const autosave = createNoteAutosave({ save, delay: 800, minInterval: 3000 })
+
+    autosave.schedule('n1', { content: 'a' })
+    await vi.advanceTimersByTimeAsync(800)
+    autosave.schedule('n2', { content: 'b' })
+    await vi.advanceTimersByTimeAsync(800)
+
+    expect(save.mock.calls.map(([id]) => id)).toEqual(['n1', 'n2'])
+  })
+
+  it('flush sends at once even inside the minimum interval', async () => {
+    const save = vi.fn(async () => ({}))
+    const autosave = createNoteAutosave({ save, delay: 100, minInterval: 3000 })
+
+    autosave.schedule('n1', { content: 'a' })
+    await vi.advanceTimersByTimeAsync(100)
+    autosave.schedule('n1', { content: 'ab' })
+    await autosave.flush('n1')
+
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save).toHaveBeenLastCalledWith('n1', { content: 'ab' })
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(save).toHaveBeenCalledTimes(2)
   })
 
   it('flush saves immediately without waiting for the debounce', async () => {

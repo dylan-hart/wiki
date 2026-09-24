@@ -7,7 +7,8 @@ import {
   sites as sitesTable,
   users as usersTable
 } from '../db/schema.ts'
-import { searchNotes } from './notesSearch.ts'
+import { NOTE_MAX_CONTENT_BYTES } from './noteContent.ts'
+import { NOTE_SEARCH_TSVECTOR_MAX_CHARS, searchNotes } from './notesSearch.ts'
 
 describe('searchNotes (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -128,5 +129,46 @@ describe('searchNotes (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     assert.equal(rows.length, 1)
+  })
+
+  test('a note too big for one tsvector does not break searching', async () => {
+    const [heavy] = await fixtures.db
+      .insert(usersTable)
+      .values({ email: 'heavy@example.com', name: 'Heavy', isActive: true, isVerified: true })
+      .returning({ id: usersTable.id })
+    // -> About 1.4 MB of distinct words, which Postgres turns into a 2.2 MB tsvector, over its 1 MiB
+    //    limit, and a second note of hyphen-joined 4-byte characters, the densest input measured.
+    const words = Array.from({ length: 200_000 }, (_, i) => `w${i}`).join(' ')
+    const denseParts: string[] = []
+    while (denseParts.length * 10 < NOTE_MAX_CONTENT_BYTES - 64) {
+      const first = 0x20000 + ((denseParts.length * 2) % 40_000)
+      denseParts.push(`${String.fromCodePoint(first)}-${String.fromCodePoint(first + 1)}`)
+    }
+    const bigId = await addNote(fixtures.siteId, heavy!.id, {
+      title: null,
+      content: `kickoff ${words} needleatend`
+    })
+    const denseId = await addNote(fixtures.siteId, heavy!.id, {
+      title: 'Dense',
+      content: denseParts.join(' ')
+    })
+    assert.ok(Buffer.byteLength(denseParts.join(' ')) <= NOTE_MAX_CONTENT_BYTES)
+    assert.ok(words.length > NOTE_SEARCH_TSVECTOR_MAX_CHARS)
+
+    const find = (query: string) =>
+      searchNotes({ siteId: fixtures.siteId, userId: heavy!.id, query })
+
+    assert.deepEqual(
+      (await find('kickoff')).map((r) => r.id),
+      [bigId]
+    )
+    assert.deepEqual(
+      (await find('needleatend')).map((r) => r.id),
+      [bigId]
+    )
+    assert.deepEqual(
+      (await find('dense')).map((r) => r.id),
+      [denseId]
+    )
   })
 })

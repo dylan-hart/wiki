@@ -5,6 +5,18 @@ import { escapeLikePattern } from './common.ts'
 export const NOTE_SEARCH_DEFAULT_LIMIT = 25
 export const NOTE_SEARCH_MAX_LIMIT = 100
 
+/**
+ * How much of a note's content goes into its `tsvector`. Postgres refuses a `tsvector` whose lexemes
+ * and positions take more than 1 MiB ("string is too long for tsvector"), and a 2 MiB note of
+ * distinct words is far past that, which would fail the whole query and so every search the user
+ * makes. `left()` counts characters, and measured against the worst inputs found (4-byte characters
+ * joined by hyphens, which the parser splits into three lexemes each) one character costs at most
+ * about 10.5 bytes of `tsvector`, and by the parser's own arithmetic under 13. 64K characters plus a
+ * full title stays under the limit at that bound. The `ILIKE` match below still sees the whole
+ * note, so a note longer than this still turns up for a word or phrase further in.
+ */
+export const NOTE_SEARCH_TSVECTOR_MAX_CHARS = 65_536
+
 export interface NoteSearchRow {
   id: string
   sectionId: string
@@ -27,7 +39,7 @@ export async function searchNotes({
   if (!terms) {
     return []
   }
-  const document = sql`to_tsvector('simple', coalesce(${notesTable.title}, '') || ' ' || ${notesTable.content})`
+  const document = sql`to_tsvector('simple', coalesce(${notesTable.title}, '') || ' ' || left(${notesTable.content}, ${sql.raw(String(NOTE_SEARCH_TSVECTOR_MAX_CHARS))}))`
   const tsQuery = sql`websearch_to_tsquery('simple', ${terms})`
   const pattern = `%${escapeLikePattern(terms)}%`
 

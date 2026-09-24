@@ -234,6 +234,31 @@ class Locales extends ClusterReloaded {
     return { loaded, skipped }
   }
 
+  /**
+   * The strings an operator sideloaded for `code` (`<dataPath>/locales/<code>.json`), or `{}` when
+   * there is no valid file. A writer that replaces or merges a locale's strings from any other
+   * source overlays these last, so an operator's override keeps winning: {@link sideloadFromDataPath}
+   * cannot re-apply it itself, since that writer's own `updatedAt` bump now postdates the file.
+   */
+  async sideloadedStrings(code: string): Promise<Record<string, unknown>> {
+    const dir = this.sideloadPath()
+    const flPath = path.join(dir, `${code}.json`)
+    // -> `code` can come off the network (`update-locales`), so it may name nothing outside `dir`
+    if (path.dirname(flPath) !== dir) {
+      return {}
+    }
+    try {
+      const parsed = parseSideloadLocalePack(JSON.parse(await readFile(flPath, 'utf8')))
+      return parsed.ok ? parsed.pack.strings : {}
+    } catch {
+      return {}
+    }
+  }
+
+  /**
+   * Merges strings the daily `update-locales` sync downloaded onto what is stored for `code`, with
+   * any sideloaded override for that code ({@link sideloadedStrings}) re-applied on top.
+   */
   async mergeDownloadedStrings(
     code: string,
     meta: Omit<SideloadLocalePack, 'strings'>,
@@ -249,7 +274,10 @@ class Locales extends ClusterReloaded {
       existingRows.length === 1 && isPlainObject(existingRows[0].strings)
         ? (existingRows[0].strings as Record<string, unknown>)
         : {}
-    const mergedStrings = mergeLocaleStrings(storedStrings, downloaded)
+    const mergedStrings = mergeLocaleStrings(
+      mergeLocaleStrings(storedStrings, downloaded),
+      await this.sideloadedStrings(code)
+    )
     const completeness = computeCompleteness(baseStrings, mergedStrings)
     await CARDINAL.db
       .insert(localesTable)
@@ -283,6 +311,10 @@ class Locales extends ClusterReloaded {
         const langFilename = localeCode(lang)
 
         const dbLang = dbLocales.find((l: any) => l.code === langFilename)
+        // -> The bundled `en.json` is the source of truth for English, never a stored copy: a row
+        //    written by anything else (a past `update-locales` run downloaded upstream's English
+        //    over Cardinal.js's own) is replaced on every boot, however fresh its `updatedAt`.
+        const overwrite = force || langFilename === 'en'
 
         const flPath = path.join(CARDINAL.SERVERPATH, `locales/${langFilename}.json`)
         try {
@@ -292,9 +324,15 @@ class Locales extends ClusterReloaded {
           if (
             !dbLang ||
             Temporal.Instant.compare(dbLang.updatedAt.toTemporalInstant(), flUpdatedAt) < 0 ||
-            force
+            overwrite
           ) {
-            const flStrings = JSON.parse(await readFile(flPath, 'utf8'))
+            // -> A sideloaded override is laid back on top, as `mergeDownloadedStrings` does: this
+            //    write's `updatedAt` postdates the sideload file, so `sideloadFromDataPath` below
+            //    would skip it
+            const flStrings = mergeLocaleStrings(
+              JSON.parse(await readFile(flPath, 'utf8')),
+              await this.sideloadedStrings(langFilename)
+            )
             // -> `en` covers itself by definition; explicit rather than relying on the comparison
             //    incidentally reading 100.
             const completeness =
@@ -320,8 +358,9 @@ class Locales extends ClusterReloaded {
                 //    before this statement, so another writer can have refreshed THIS code's row in
                 //    the meantime and the conflict path would clobber it. Re-checking freshness
                 //    against the row's CURRENT `updatedAt` makes the insert-or-refresh atomic.
-                //    `force` means "overwrite regardless of freshness" and must still do that.
-                setWhere: force ? undefined : lt(localesTable.updatedAt, flStat.mtime)
+                //    `force` means "overwrite regardless of freshness" and must still do that, as must
+                //    `en`, which no other writer's copy may outrank.
+                setWhere: overwrite ? undefined : lt(localesTable.updatedAt, flStat.mtime)
               })
             this.invalidateStringsCache(langFilename)
             CARDINAL.logger.debug('locale', 'loaded locale from disk', {
@@ -401,7 +440,8 @@ class Locales extends ClusterReloaded {
    * `en` additionally merges onto the bundled `backend/locales/en.json` floor — the one locale
    * guaranteed to ship a complete file on a fresh install with nothing synced or sideloaded yet — so
    * a key missing from the stored row still resolves to real text rather than a blank/raw key. The
-   * stored row wins on a shared key.
+   * stored row wins on a shared key: {@link refreshFromDisk} rewrites it from that same file on
+   * every boot, so all it can add is an operator's sideloaded override.
    */
   async getStrings(locale: string) {
     const cacheKey = `localeStrings:${locale}`

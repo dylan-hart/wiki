@@ -12,6 +12,7 @@ import {
 } from '../helpers/rateLimit.ts'
 import { isRecoveryCodeShape } from '../helpers/recoveryCodes.ts'
 import { testRegexSafely } from '../helpers/safeRegexTest.ts'
+import { isDisconnected } from '../helpers/userAuthEntries.ts'
 import { ProvisionableLoginError } from './authentication.ts'
 import { deriveDisplayName } from './users.ts'
 import { countTfaFailure } from './userCredentials.ts'
@@ -125,6 +126,12 @@ function logLoginRefused(reason: LoginRefusalReason, context: LoginRefusalContex
   if (logInFull) {
     CARDINAL.logger.warn('auth', 'login refused', { reason, ...context })
   }
+}
+
+/** What the account holder's notices call a provider: its display name, else its module's title. */
+function methodNameOf(strategy: AuthStrategy): string {
+  const definition = CARDINAL.data.authentication?.find((d: any) => d.key === strategy.module)
+  return strategy.displayName || definition?.title || strategy.module
 }
 
 /**
@@ -279,7 +286,7 @@ class Login {
           if (!providerStrategy) {
             throw new Error('ERR_INVALID_STRATEGY')
           }
-          user = await this.findOrCreateProviderUser(providerStrategy, err.profile)
+          user = await this.findOrCreateProviderUser(providerStrategy, err.profile, { siteId, ip })
         } else {
           CARDINAL.models.flags.authDebug(
             `Strategy ${str.module} rejected the attempt${username ? ` for "${username}"` : ''}: ${err.message}`
@@ -336,7 +343,7 @@ class Login {
     },
     req: any
   ): Promise<AfterLoginResult> {
-    const user = await this.findOrCreateProviderUser(strategy, profile)
+    const user = await this.findOrCreateProviderUser(strategy, profile, { siteId, ip })
 
     /*
       `mustChangePwd` lives on the local strategy's own auth entry and is about a stored password
@@ -370,12 +377,11 @@ class Login {
   }): Promise<void> {
     const email = (profile.email ?? '').toLowerCase().trim()
     this.assertAllowedProviderEmail(strategy, email)
-    const definition = CARDINAL.data.authentication?.find((d: any) => d.key === strategy.module)
     await CARDINAL.models.userCredentials.linkStrategy({
       userId,
       strategyId: strategy.id,
       identity: { id: profile.id, email },
-      methodName: strategy.displayName || definition?.title || strategy.module,
+      methodName: methodNameOf(strategy),
       siteId,
       ip
     })
@@ -389,7 +395,9 @@ class Login {
    * previous login stored — never the email address alone, and never a strategy other than this
    * exact one: a module must not be able to walk in and claim an account linked under a different
    * strategy. `trustEmailForLinking` is the explicit administrator opt-in that waives that for a
-   * provider whose address is verified.
+   * provider whose address is verified — except for a provider disconnected from the account
+   * (`helpers/userAuthEntries.ts#isDisconnected`), which only the connect flow binds again. A link
+   * made this way is audited and mailed exactly as one made through the connect flow is.
    *
    * `isActive`/`isVerified` are deliberately not checked here: both callers hand the returned user
    * straight to `afterLoginChecks()`, which is the one place that check belongs.
@@ -399,7 +407,8 @@ class Login {
    */
   private async findOrCreateProviderUser(
     strategy: AuthStrategy,
-    profile: ProviderProfile
+    profile: ProviderProfile,
+    context: { siteId?: string; ip?: string } = {}
   ): Promise<any> {
     const email = profile.email.toLowerCase().trim()
     const firstName = (profile.firstName ?? '').trim()
@@ -432,6 +441,13 @@ class Login {
         if (!strategy.trustEmailForLinking) {
           CARDINAL.models.flags.authDebug(
             `Provider login for <${email}> refused: no stored account link for strategy ${strategy.id}, and trustEmailForLinking is off`
+          )
+          logLoginRefused('account-not-linked', { strategy: strategy.id })
+          throw new Error('ERR_ACCOUNT_NOT_LINKED')
+        }
+        if (isDisconnected(user, strategy.id)) {
+          CARDINAL.models.flags.authDebug(
+            `Provider login for <${email}> refused: strategy ${strategy.id} was disconnected from the account, and only the connect flow links it again`
           )
           logLoginRefused('account-not-linked', { strategy: strategy.id })
           throw new Error('ERR_ACCOUNT_NOT_LINKED')
@@ -480,11 +496,22 @@ class Login {
     }
 
     // -> Written on every login, not only at creation: this entry is also what tells the profile
-    //    page that the user signs in through this strategy.
+    //    page that the user signs in through this strategy. Re-checked against the row inside the
+    //    lock: a disconnect landing between the read above and this write must not be undone by it.
+    const hadLink = ((user.auth ?? {}) as Record<string, any>)[strategy.id] !== undefined
     await CARDINAL.models.userCredentials.patchStrategyAuth(
       user.id,
       strategy.id,
-      () => ({ id: profile.id, email }),
+      (entry, current) => {
+        if (!entry && (hadLink || isDisconnected(current, strategy.id))) {
+          CARDINAL.models.flags.authDebug(
+            `Provider login for <${email}> refused: strategy ${strategy.id} was disconnected from the account during the login`
+          )
+          logLoginRefused('account-not-linked', { strategy: strategy.id })
+          throw new Error('ERR_ACCOUNT_NOT_LINKED')
+        }
+        return { id: profile.id, email }
+      },
       {
         mirrorInto: user
       }
@@ -492,6 +519,17 @@ class Login {
 
     if (justRelinkedViaTrustedEmail) {
       await this.clearMigratedFallbackLocalAuth(user)
+      CARDINAL.models.flags.authDebug(
+        `Linked user ${user.id} to strategy ${strategy.id} by its trusted email address`
+      )
+      await CARDINAL.models.userCredentials.announceSignInMethodAdded({
+        user,
+        strategyId: strategy.id,
+        methodName: methodNameOf(strategy),
+        siteId: context.siteId,
+        ip: context.ip,
+        trustedEmail: true
+      })
     }
 
     await this.fillMissingNameHalves(user, firstName, lastName)

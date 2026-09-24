@@ -45,7 +45,10 @@ function stripDerived<T extends Record<string, any>>(row: T): Partial<T> {
 }
 
 /**
- * Serializes the ENTIRE instance — every site, assets included — into one gzipped tar archive.
+ * Serializes the ENTIRE instance — every site, assets included — into one gzipped tar archive,
+ * except users' personal notes (`notes`, `noteSections`, `noteImages`): they are readable by their
+ * owner alone, and an archive is readable by whoever holds it
+ * (`docs/decisions/2026-09-23-personal-notes-data-model.md`).
  * Deliberately a different surface from `models/export.ts#exportSite`, which serializes one site's
  * content under its own format version and importer contract.
  *
