@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { compileTrustProxyList, CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
-import { DISCONNECTED_AUTH_KEY } from '../helpers/userAuthEntries.ts'
+import { countUsableStrategyLogins } from '../helpers/userAuthEntries.ts'
 
 export const SECURITY_FIELDS = [
   'allowPasskeys',
@@ -202,28 +202,28 @@ class Security {
     return null
   }
 
+  /**
+   * Refuses turning passkeys off while an account holding one has no other working way in — the
+   * same rule the per-account guards apply (`helpers/userAuthEntries.ts#countUsableStrategyLogins`):
+   * a restricted or unknown password, or a provider whose strategy is disabled or deleted, is no way
+   * in. Only accounts with a passkey are read, and the rule runs on them here rather than being
+   * restated in SQL.
+   */
   async checkPasskeyLockout(patch: Record<string, any>): Promise<string | null> {
     if (patch.allowPasskeys !== false || CARDINAL.config.security?.allowPasskeys === false) {
       return null
     }
 
     const result = await CARDINAL.db.execute(sql`
-      SELECT count(*)::int AS count
+      SELECT auth
       FROM users
       WHERE jsonb_array_length(coalesce(passkeys -> 'authenticators', '[]'::jsonb)) > 0
-        AND EXISTS (
-          SELECT 1 FROM jsonb_each(auth) AS entry
-          WHERE entry.value ->> 'restrictLogin' = 'true'
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM jsonb_each(auth) AS entry
-          WHERE entry.key <> ${DISCONNECTED_AUTH_KEY}
-            AND coalesce(entry.value ->> 'restrictLogin', 'false') <> 'true'
-        )
     `)
-    const locked = Number((result.rows[0] as { count?: number } | undefined)?.count ?? 0)
+    const locked = (result.rows as Array<{ auth: unknown }>).filter(
+      (row) => countUsableStrategyLogins(row.auth) < 1
+    ).length
     if (locked > 0) {
-      return `Passkeys cannot be turned off yet: ${locked} ${locked === 1 ? 'account has' : 'accounts have'} password login turned off and can only sign in with a passkey.`
+      return `Passkeys cannot be turned off yet: ${locked} ${locked === 1 ? 'account has' : 'accounts have'} no way to sign in other than a passkey.`
     }
     return null
   }

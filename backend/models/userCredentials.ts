@@ -12,7 +12,11 @@ import { passkeysAllowed } from './security.ts'
 import { randomToken } from '../helpers/randomToken.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
 import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
-import { DISCONNECTED_AUTH_KEY, strategyEntries } from '../helpers/userAuthEntries.ts'
+import {
+  countUsableStrategyLogins,
+  DISCONNECTED_AUTH_KEY,
+  strategyEntries
+} from '../helpers/userAuthEntries.ts'
 import { generateRecoveryCodes, normalizeRecoveryCode } from '../helpers/recoveryCodes.ts'
 import type { AuditActor } from './auditLog.ts'
 
@@ -169,30 +173,14 @@ export async function matchRecoveryCode(
 }
 
 /**
- * Whether one stored `auth` entry is, right now, a way into the account. Its strategy has to be
- * enabled and loaded: a disabled strategy has no `CARDINAL.auth.strategies` instance and its
- * authorize route answers 404, and deleting a strategy leaves every account's entry for it behind.
- * An entry that is itself restricted is no way in either, and nor is a password the account holder
- * does not know — the random one `users.createUser()` writes for an account a provider
- * auto-provisioned, stored as `isPasswordKnown: false`.
- */
-function isUsableLogin(strategyId: string, entry: any): boolean {
-  if (!CARDINAL.auth?.strategies?.[strategyId]) {
-    return false
-  }
-  return !entry?.restrictLogin && (!entry?.password || entry.isPasswordKnown === true)
-}
-
-/**
  * How many ways into the account remain if the given provider stops working — or, with no provider
- * named, how many it has at all — counting only {@link isUsableLogin} entries. Passkeys count
- * whichever host they were registered against: on a multi-site instance one bound to another site
- * still leaves the account reachable.
+ * named, how many it has at all: its working sign-in methods
+ * (`helpers/userAuthEntries.ts#countUsableStrategyLogins`) plus its passkeys, while passkeys are
+ * allowed. Passkeys count whichever host they were registered against: on a multi-site instance one
+ * bound to another site still leaves the account reachable.
  */
 export function countAlternativeLogins(user: any, strategyId?: string): number {
-  const otherProviders = strategyEntries(user.auth).filter(
-    ([id, config]) => id !== strategyId && isUsableLogin(id, config)
-  ).length
+  const otherProviders = countUsableStrategyLogins(user.auth, strategyId)
   const passkeys = passkeysAllowed() ? ((user.passkeys ?? {}).authenticators ?? []).length : 0
   return otherProviders + passkeys
 }

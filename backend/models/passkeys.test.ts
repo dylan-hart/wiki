@@ -1,7 +1,8 @@
 import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
-import { isoBase64URL } from '@simplewebauthn/server/helpers'
+import { isoBase64URL, isoCBOR } from '@simplewebauthn/server/helpers'
 import { eq } from 'drizzle-orm'
 import { passkeys, resolveOrigin } from './passkeys.ts'
 import { authLockKey, userCredentials } from './userCredentials.ts'
@@ -283,3 +284,236 @@ describe('models/passkeys remove (DB-backed)', { skip: !hasTestDatabase() }, () 
     assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1)
   })
 })
+
+/**
+ * A software authenticator producing genuine WebAuthn responses (ES256, `none` attestation), so the
+ * real `verifyRegistrationResponse()`/`verifyAuthenticationResponse()` run: what is under test is
+ * how the verified result is written back, which only a response that verifies reaches.
+ */
+function softwareAuthenticator(rpId: string, origin: string) {
+  const sha256 = (data: Uint8Array | string) => createHash('sha256').update(data).digest()
+  const u32 = (n: number) => {
+    const buf = Buffer.alloc(4)
+    buf.writeUInt32BE(n)
+    return buf
+  }
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+  const jwk = publicKey.export({ format: 'jwk' })
+  const credentialId = Buffer.from(`cred-${Math.random().toString(36).slice(2)}`)
+  const id = isoBase64URL.fromBuffer(credentialId)
+  const coseKey = isoCBOR.encode(
+    new Map<number, any>([
+      [1, 2],
+      [3, -7],
+      [-1, 1],
+      [-2, Buffer.from(jwk.x!, 'base64url')],
+      [-3, Buffer.from(jwk.y!, 'base64url')]
+    ])
+  )
+  const clientData = (type: string, challenge: string) =>
+    Buffer.from(JSON.stringify({ type, challenge, origin }))
+
+  return {
+    id,
+    registration(challenge: string): any {
+      const authData = Buffer.concat([
+        sha256(rpId),
+        Buffer.from([0x41]),
+        u32(0),
+        Buffer.alloc(16),
+        Buffer.from([0, credentialId.length]),
+        credentialId,
+        Buffer.from(coseKey)
+      ])
+      const attestationObject = isoCBOR.encode(
+        new Map<string, any>([
+          ['fmt', 'none'],
+          ['attStmt', new Map()],
+          ['authData', authData]
+        ])
+      )
+      return {
+        id,
+        rawId: id,
+        type: 'public-key',
+        clientExtensionResults: {},
+        response: {
+          clientDataJSON: isoBase64URL.fromBuffer(clientData('webauthn.create', challenge)),
+          attestationObject: isoBase64URL.fromBuffer(attestationObject),
+          transports: ['internal']
+        }
+      }
+    },
+    assertion(challenge: string, counter: number, userId: string): any {
+      const authData = Buffer.concat([sha256(rpId), Buffer.from([0x01]), u32(counter)])
+      const clientDataJSON = clientData('webauthn.get', challenge)
+      const signature = sign(
+        'sha256',
+        Buffer.concat([authData, sha256(clientDataJSON)]),
+        privateKey
+      )
+      return {
+        id,
+        rawId: id,
+        type: 'public-key',
+        clientExtensionResults: {},
+        response: {
+          clientDataJSON: isoBase64URL.fromBuffer(clientDataJSON),
+          authenticatorData: isoBase64URL.fromBuffer(authData),
+          signature: isoBase64URL.fromBuffer(signature),
+          userHandle: isoBase64URL.fromUTF8String(userId)
+        }
+      }
+    }
+  }
+}
+
+describe(
+  'models/passkeys writes the stored list back under the lock (DB-backed)',
+  {
+    skip: !hasTestDatabase()
+  },
+  () => {
+    const LOCAL_ID = '10000000-0000-4000-8000-000000000001'
+    const RP_ID = 'wiki.example.com'
+    const ORIGIN = 'https://wiki.example.com'
+    const CHALLENGE = isoBase64URL.fromUTF8String('the-challenge')
+    const pending = () => ({
+      challenge: CHALLENGE,
+      rpId: RP_ID,
+      origin: ORIGIN,
+      siteId: fixtures.siteId
+    })
+
+    before(async () => {
+      await ensureTemporal()
+      CARDINAL.data.systemIds = { ...CARDINAL.data.systemIds, localAuthId: LOCAL_ID } as any
+      CARDINAL.config.security = { ...CARDINAL.config.security, allowPasskeys: true }
+    })
+
+    async function seedUser(authenticators: any[]): Promise<string> {
+      const [row] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: `pk-lock-${Math.random().toString(36).slice(2)}@example.com`,
+          name: 'Passkey User',
+          isActive: true,
+          isVerified: true,
+          auth: { [LOCAL_ID]: { password: 'hash', isPasswordKnown: true } },
+          passkeys: { authenticators }
+        })
+        .returning({ id: usersTable.id })
+      return row!.id
+    }
+
+    async function storedIds(userId: string): Promise<string[]> {
+      return (await passkeys.list(userId)).map((pk) => pk.id)
+    }
+
+    /** Registers `authenticator` for real, the way the profile route does. */
+    async function register(
+      userId: string,
+      authenticator: ReturnType<typeof softwareAuthenticator>
+    ) {
+      return passkeys.finalizeRegistration({
+        userId,
+        name: 'Laptop',
+        registrationResponse: authenticator.registration(CHALLENGE),
+        pending: pending()
+      })
+    }
+
+    /**
+     * Holds the per-user lock while `start()` begins, gives a read taken outside the lock time to
+     * happen, then applies `meanwhile` — what a `remove()` holding the lock would have written.
+     */
+    async function raceUnderLock<T>(
+      userId: string,
+      start: () => Promise<T>,
+      meanwhile: () => Promise<unknown>
+    ): Promise<{ result: Promise<T> }> {
+      let pendingResult!: Promise<T>
+      await withAdvisoryLock(authLockKey(userId), async () => {
+        pendingResult = start()
+        pendingResult.catch(() => {})
+        await delay(300)
+        await meanwhile()
+      })
+      // -> Wrapped: an async function returning the promise itself would settle with it instead
+      return { result: pendingResult }
+    }
+
+    test('a registration appends to the list', async () => {
+      const userId = await seedUser([{ id: 'k-old', name: 'Old' }])
+      const authenticator = softwareAuthenticator(RP_ID, ORIGIN)
+
+      await register(userId, authenticator)
+      assert.deepEqual(await storedIds(userId), ['k-old', authenticator.id])
+    })
+
+    test('a registration does not put back a passkey removed while it was being verified', async () => {
+      const userId = await seedUser([{ id: 'k-old', name: 'Old' }])
+      const authenticator = softwareAuthenticator(RP_ID, ORIGIN)
+
+      const { result } = await raceUnderLock(
+        userId,
+        () => register(userId, authenticator),
+        () =>
+          fixtures.db
+            .update(usersTable)
+            .set({ passkeys: { authenticators: [] } })
+            .where(eq(usersTable.id, userId))
+      )
+
+      await result
+      assert.deepEqual(await storedIds(userId), [authenticator.id])
+    })
+
+    test('a login stores the counter the authenticator reported', async (t) => {
+      t.mock.method(CARDINAL.models.login, 'afterLoginChecks', async () => ({
+        authenticated: true
+      }))
+      const userId = await seedUser([])
+      const authenticator = softwareAuthenticator(RP_ID, ORIGIN)
+      await register(userId, authenticator)
+
+      await passkeys.verifyLogin(
+        { authResponse: authenticator.assertion(CHALLENGE, 7, userId), pending: pending() },
+        {}
+      )
+      const stored = (await passkeys.getStore(userId)).authenticators ?? []
+      assert.equal(stored.find((pk) => pk.id === authenticator.id)?.counter, 7)
+    })
+
+    test('a login neither resurrects nor succeeds with a passkey removed while it was verified', async (t) => {
+      const afterLoginChecks = t.mock.method(
+        CARDINAL.models.login,
+        'afterLoginChecks',
+        async () => ({
+          authenticated: true
+        })
+      )
+      const userId = await seedUser([])
+      const authenticator = softwareAuthenticator(RP_ID, ORIGIN)
+      await register(userId, authenticator)
+
+      const { result } = await raceUnderLock(
+        userId,
+        () =>
+          passkeys.verifyLogin(
+            { authResponse: authenticator.assertion(CHALLENGE, 1, userId), pending: pending() },
+            {}
+          ),
+        () =>
+          fixtures.db
+            .update(usersTable)
+            .set({ passkeys: { authenticators: [] } })
+            .where(eq(usersTable.id, userId))
+      )
+
+      await assert.rejects(result, /ERR_LOGIN_FAILED/)
+      assert.deepEqual(await storedIds(userId), [])
+      assert.equal(afterLoginChecks.mock.callCount(), 0)
+    })
+  }
+)
