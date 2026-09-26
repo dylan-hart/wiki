@@ -1,4 +1,5 @@
 {
+  "project": "cardinaljs",
   "targetBranch": "scarlett",
   "quickChecks": [
     {
